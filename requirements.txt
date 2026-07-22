@@ -1,0 +1,4 @@
+pydantic>=2.7
+pydantic-settings>=2.2
+langchain-ollama>=0.2
+langchain-core>=0.3
