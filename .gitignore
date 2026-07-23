@@ -1,7 +1,20 @@
+# Virtualenv & Python cache
+.venv/
 __pycache__/
 *.pyc
 .pytest_cache/
-.venv/
+
+# Local secrets
 .env
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Local runtime data
 *.db
 .orchestra/

@@ -256,104 +256,10 @@ def test_bad_args_error_includes_correct_signature():
     assert "read_file(path:" in out and "Required signature" in out                 # self-correction aid
 
 
-# ── Career tools: deterministic job-fit scoring (Phase 6) ──────────
-def test_score_job_fit_errors_without_background_file():
-    from orchestra.agents.career_tools import score_job_fit, _safe, _BACKGROUND_FILE
-    bg = _safe(_BACKGROUND_FILE)
-    if bg.exists():
-        bg.unlink()   # ensure a clean precondition in the shared test workspace
-    out = score_job_fit("Looking for a Python developer")
-    assert out.startswith("Error") and "background.txt" in out
-
-
-def test_score_job_fit_matches_and_scores_deterministically():
-    run_tool("write_file", {
-        "path": "background.txt",
-        "content": "Python LangGraph Ollama RAG FastAPI Arabic NLP Dahua DSS",
-    })
-    out1 = run_tool("score_job_fit", {
-        "posting_text": "We need a Python engineer with RAG and FastAPI experience"})
-    out2 = run_tool("score_job_fit", {
-        "posting_text": "We need a Python engineer with RAG and FastAPI experience"})
-    assert out1 == out2                      # deterministic: same in -> same out
-    assert "STRONG" in out1 or "MODERATE" in out1
-    assert "python" in out1 and "rag" in out1 and "fastapi" in out1
-
-
-def test_score_job_fit_weak_for_unrelated_posting():
-    run_tool("write_file", {
-        "path": "background.txt",
-        "content": "Python LangGraph Ollama RAG FastAPI",
-    })
-    out = run_tool("score_job_fit", {
-        "posting_text": "Seeking a pastry chef with cake decorating experience"})
-    assert "WEAK" in out
-
-
-def test_log_application_creates_and_appends():
-    out1 = run_tool("log_application", {
-        "company": "SDAIA", "role": "AI Engineer", "fit_summary": "STRONG 80%"})
-    assert "SDAIA" in out1
-    log = run_tool("read_file", {"path": "applications_log.md"})
-    assert "SDAIA" in log and "AI Engineer" in log
-
-
-def test_career_assistant_registered_with_hint():
-    from orchestra.agents.factory import default_registry
-    reg = default_registry()
-    assert reg.find_for("job_search").name == "Career Assistant"
-    assert "job posting" in reg.hints()
-
-
-# ── Job Scout: real search via Tavily (mocked in tests, no network) ─
-def test_search_jobs_errors_without_api_key():
-    from orchestra.agents import job_search_tools as jst
-    jst.settings.tavily_api_key = None
-    out = jst.search_jobs("AI engineer jobs Riyadh")
-    assert out.startswith("Error") and "TAVILY_API_KEY" in out
-
-
-def test_search_jobs_formats_results(monkeypatch):
-    from orchestra.agents import job_search_tools as jst
-    jst.settings.tavily_api_key = "fake-key-for-test"
-
-    class FakeResp:
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self):
-            import json
-            return json.dumps({"results": [
-                {"title": "AI Engineer - SDAIA", "url": "https://x.test/1",
-                 "content": "Riyadh based AI role"},
-            ]}).encode()
-
-    monkeypatch.setattr(jst.urllib.request, "urlopen", lambda *a, **k: FakeResp())
-    out = jst.search_jobs("AI engineer jobs Riyadh")
-    assert "SDAIA" in out and "https://x.test/1" in out
-    jst.settings.tavily_api_key = None
-
-
-def test_search_jobs_handles_api_failure(monkeypatch):
-    from orchestra.agents import job_search_tools as jst
-    jst.settings.tavily_api_key = "fake-key-for-test"
-
-    def boom(*a, **k):
-        raise RuntimeError("network down")
-    monkeypatch.setattr(jst.urllib.request, "urlopen", boom)
-    out = jst.search_jobs("anything")
-    assert out.startswith("Error") and "network down" in out
-    jst.settings.tavily_api_key = None
-
-
-def test_job_scout_registered_with_hint():
-    from orchestra.agents.factory import default_registry
-    reg = default_registry()
-    assert reg.find_for("job_discovery").name == "Job Scout"
-    assert "search_jobs" in reg.find_for("job_discovery").tool_names
 
 
 # ── fatal_tools: error stops the task instead of letting the model
-#    hallucinate past it (bug found live: Job Scout + missing Tavily key
+#    hallucinate past it (bug found live: a search-style specialist with a misconfigured external service
 #    fabricated fake job postings instead of reporting the failure) ────
 def test_fatal_tool_error_fails_task_immediately_no_hallucination():
     from orchestra.agents.toolbox import tool as _tool
