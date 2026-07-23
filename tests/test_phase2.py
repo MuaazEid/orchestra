@@ -254,3 +254,145 @@ def test_bad_args_error_includes_correct_signature():
     out = run_tool("read_file", {"filename": "x.txt"})   # invented arg name
     assert out.startswith("Error: bad arguments")
     assert "read_file(path:" in out and "Required signature" in out                 # self-correction aid
+
+
+# ── Career tools: deterministic job-fit scoring (Phase 6) ──────────
+def test_score_job_fit_errors_without_background_file():
+    from orchestra.agents.career_tools import score_job_fit, _safe, _BACKGROUND_FILE
+    bg = _safe(_BACKGROUND_FILE)
+    if bg.exists():
+        bg.unlink()   # ensure a clean precondition in the shared test workspace
+    out = score_job_fit("Looking for a Python developer")
+    assert out.startswith("Error") and "background.txt" in out
+
+
+def test_score_job_fit_matches_and_scores_deterministically():
+    run_tool("write_file", {
+        "path": "background.txt",
+        "content": "Python LangGraph Ollama RAG FastAPI Arabic NLP Dahua DSS",
+    })
+    out1 = run_tool("score_job_fit", {
+        "posting_text": "We need a Python engineer with RAG and FastAPI experience"})
+    out2 = run_tool("score_job_fit", {
+        "posting_text": "We need a Python engineer with RAG and FastAPI experience"})
+    assert out1 == out2                      # deterministic: same in -> same out
+    assert "STRONG" in out1 or "MODERATE" in out1
+    assert "python" in out1 and "rag" in out1 and "fastapi" in out1
+
+
+def test_score_job_fit_weak_for_unrelated_posting():
+    run_tool("write_file", {
+        "path": "background.txt",
+        "content": "Python LangGraph Ollama RAG FastAPI",
+    })
+    out = run_tool("score_job_fit", {
+        "posting_text": "Seeking a pastry chef with cake decorating experience"})
+    assert "WEAK" in out
+
+
+def test_log_application_creates_and_appends():
+    out1 = run_tool("log_application", {
+        "company": "SDAIA", "role": "AI Engineer", "fit_summary": "STRONG 80%"})
+    assert "SDAIA" in out1
+    log = run_tool("read_file", {"path": "applications_log.md"})
+    assert "SDAIA" in log and "AI Engineer" in log
+
+
+def test_career_assistant_registered_with_hint():
+    from orchestra.agents.factory import default_registry
+    reg = default_registry()
+    assert reg.find_for("job_search").name == "Career Assistant"
+    assert "job posting" in reg.hints()
+
+
+# ── Job Scout: real search via Tavily (mocked in tests, no network) ─
+def test_search_jobs_errors_without_api_key():
+    from orchestra.agents import job_search_tools as jst
+    jst.settings.tavily_api_key = None
+    out = jst.search_jobs("AI engineer jobs Riyadh")
+    assert out.startswith("Error") and "TAVILY_API_KEY" in out
+
+
+def test_search_jobs_formats_results(monkeypatch):
+    from orchestra.agents import job_search_tools as jst
+    jst.settings.tavily_api_key = "fake-key-for-test"
+
+    class FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self):
+            import json
+            return json.dumps({"results": [
+                {"title": "AI Engineer - SDAIA", "url": "https://x.test/1",
+                 "content": "Riyadh based AI role"},
+            ]}).encode()
+
+    monkeypatch.setattr(jst.urllib.request, "urlopen", lambda *a, **k: FakeResp())
+    out = jst.search_jobs("AI engineer jobs Riyadh")
+    assert "SDAIA" in out and "https://x.test/1" in out
+    jst.settings.tavily_api_key = None
+
+
+def test_search_jobs_handles_api_failure(monkeypatch):
+    from orchestra.agents import job_search_tools as jst
+    jst.settings.tavily_api_key = "fake-key-for-test"
+
+    def boom(*a, **k):
+        raise RuntimeError("network down")
+    monkeypatch.setattr(jst.urllib.request, "urlopen", boom)
+    out = jst.search_jobs("anything")
+    assert out.startswith("Error") and "network down" in out
+    jst.settings.tavily_api_key = None
+
+
+def test_job_scout_registered_with_hint():
+    from orchestra.agents.factory import default_registry
+    reg = default_registry()
+    assert reg.find_for("job_discovery").name == "Job Scout"
+    assert "search_jobs" in reg.find_for("job_discovery").tool_names
+
+
+# ── fatal_tools: error stops the task instead of letting the model
+#    hallucinate past it (bug found live: Job Scout + missing Tavily key
+#    fabricated fake job postings instead of reporting the failure) ────
+def test_fatal_tool_error_fails_task_immediately_no_hallucination():
+    from orchestra.agents.toolbox import tool as _tool
+
+    @_tool
+    def flaky_external_call() -> str:
+        """Simulate a non-retriable external-service failure for testing."""
+        return "Error: service unavailable (simulated)"
+
+    spec = SpecialistSpec(name="Scout", categories=["x"],
+                          system_prompt="find things",
+                          tool_names=["flaky_external_call"],
+                          fatal_tools=["flaky_external_call"],
+                          max_steps=3)
+    llm = MockLLM().queue(
+        LLMReply(text="", tool_calls=(ToolCall("flaky_external_call", {}, "c1"),)),
+        # if the fix didn't work, the model would get ANOTHER turn here and
+        # could fabricate a fake answer instead of reporting the error
+        LLMReply(text="Found great jobs at FakeCorp!"),
+    )
+    task = run_specialist(spec, Task(description="find x jobs", category="x"),
+                          llm, Telemetry.new_run())
+    assert task.status == TaskStatus.FAILED
+    assert task.result.startswith("Error")
+    assert len(llm.calls) == 1   # never got a second turn to invent anything
+
+
+def test_non_fatal_tool_error_still_lets_model_retry():
+    # bad-argument errors must remain retriable (unchanged behavior)
+    run_tool("write_file", {"path": "retry_test.txt", "content": "hi"})
+    spec = SpecialistSpec(name="Reader", categories=["files"],
+                          system_prompt="read files",
+                          tool_names=["read_file"], max_steps=3)
+    llm = MockLLM().queue(
+        LLMReply(text="", tool_calls=(ToolCall("read_file", {"bad": "arg"}, "c1"),)),
+        LLMReply(text="", tool_calls=(ToolCall("read_file", {"path": "retry_test.txt"}, "c2"),)),
+        LLMReply(text="It says: hi"),
+    )
+    task = run_specialist(spec, Task(description="read retry_test.txt", category="files"),
+                          llm, Telemetry.new_run())
+    assert task.status == TaskStatus.DONE
+    assert len(llm.calls) == 3   # bad-args error did NOT stop the task early

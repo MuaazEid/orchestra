@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_json: bool = False  # True -> machine-readable logs for analysis
 
+    # ── Optional real web search (Tavily) ──────────────────────────
+    # Never hardcode this. Set ORCHESTRA_TAVILY_API_KEY in your own local
+    # .env — Claude (or anyone reading this source) never sees the value.
+    tavily_api_key: str | None = None
+
     @property
     def checkpoint_db(self) -> Path:
         return self.data_dir / "checkpoints.db"

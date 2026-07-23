@@ -114,6 +114,13 @@ def run_specialist(
                         + f"\n...[truncated {len(output) - _TOOL_CTX_CAP} chars]")
                     messages.append({"role": "tool", "content": ctx,
                                      "tool_call_id": tc.id})
+                    # Fatal-on-error tools: stop HERE, verbatim, before the
+                    # model gets another turn to paper over the failure.
+                    if tc.name in spec.fatal_tools and output.startswith("Error"):
+                        return task.model_copy(update={
+                            "status": TaskStatus.FAILED,
+                            "result": output,
+                        })
                     # Terminal tool ran cleanly -> task is DONE now. This
                     # breaks the "call, re-call, re-call" loop that small
                     # models fall into on save-style tasks.
@@ -137,9 +144,47 @@ def run_specialist(
 
 # ── Default staff (mirrors v1 capabilities, hired the v2 way) ──────
 def default_registry() -> SpecialistRegistry:
-    from . import builtin_tools, file_tools, web_tools  # noqa: F401  (registers tools)
+    from . import builtin_tools, file_tools, web_tools, career_tools, job_search_tools  # noqa: F401
 
     reg = SpecialistRegistry()
+    reg.register(SpecialistSpec(
+        name="Job Scout",
+        categories=["job_discovery"],
+        hint=("search the live web for CURRENT job openings by role, "
+              "location, or field \u2014 e.g. 'find AI engineer jobs in "
+              "Riyadh' or 'find physical security jobs near me'. Different "
+              "from job_search, which scores a posting you already have."),
+        system_prompt=(
+            "You find current job postings. Call search_jobs ONCE with a "
+            "specific, well-formed query built from what the user asked "
+            "(role + location + platform if relevant). Report the results "
+            "plainly: title, link, one-line summary each. Do not call "
+            "search_jobs more than once per request unless the user asks "
+            "you to broaden or narrow the search \u2014 each call costs a "
+            "real API credit. Never invent postings that weren't returned."),
+        tool_names=["search_jobs"],
+        fatal_tools=["search_jobs"],
+        max_steps=3,
+    ))
+    reg.register(SpecialistSpec(
+        name="Career Assistant",
+        categories=["job_search"],
+        hint=("score how well a pasted job posting fits the user's real "
+              "background, draft a tailored application paragraph, or log "
+              "an application \u2014 needs the posting text pasted in."),
+        system_prompt=(
+            "You help with job applications. For a pasted job posting: "
+            "(1) call score_job_fit with the posting text, (2) state the "
+            "fit tier and matched skills plainly, (3) if fit is MODERATE or "
+            "STRONG, draft a tailored 2-3 sentence paragraph connecting the "
+            "posting's stated needs to the user's matched skills \u2014 "
+            "specific, no generic enthusiasm. If asked to log the "
+            "application, call log_application with the company, role, and "
+            "a one-line fit summary. Never invent skills the score didn't "
+            "match."),
+        tool_names=["score_job_fit", "log_application"],
+        max_steps=5,
+    ))
     reg.register(SpecialistSpec(
         name="Memory Keeper",
         hint="store a NEW fact the user states about themselves.",

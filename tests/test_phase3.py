@@ -257,3 +257,12 @@ def test_read_file_tasks_skip_context_but_save_tasks_get_it():
     save = Task(description="Save a summary of the fetched content",
                 category="files", depends_on=[prev.id])
     assert "Context" in _context_for(save, {prev.id: prev}).description
+
+
+def test_execute_all_emits_real_progress_events():
+    events = []
+    reg = default_registry()
+    tasks = [Task(description="what is 2+2", category="math")]
+    execute_all(tasks, reg, Telemetry.new_run(), on_event=events.append)
+    assert any("Routing to Math Solver" in e for e in events)
+    assert any("Math Solver finished" in e for e in events)

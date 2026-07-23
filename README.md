@@ -120,9 +120,18 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 python -m pip install -r requirements.txt
 ollama pull qwen2.5:7b
 python -m orchestra doctor        # pre-flight check with actionable fixes
-python -m orchestra chat          # interactive (/audit shows the task trail)
+python -m orchestra chat          # interactive CLI (/audit shows the task trail)
+python -m orchestra serve         # browser UI at http://localhost:8765
 python smoke_test.py              # 6-case benchmark with timings
 ```
+
+## Web UI
+
+`python -m orchestra serve` starts a local FastAPI server (same `Orchestra.handle()`
+the CLI uses — no separate logic) and opens a browser-based chat at
+`localhost:8765`. The sidebar roster lights up and connects, in order, as a
+request's tasks are routed to specialists — a visual trace of the same
+planner → executor → aggregator flow `/audit` shows as text in the CLI.
 
 ## Project layout
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable
 
 from ..agents.factory import SpecialistRegistry, run_specialist
 from ..core.config import settings
@@ -75,9 +76,15 @@ def _context_for(task: Task, done: dict[str, Task]) -> Task:
 
 
 def execute_all(tasks: list[Task], registry: SpecialistRegistry,
-                tel: Telemetry) -> list[Task]:
+                tel: Telemetry,
+                on_event: Callable[[str], None] | None = None) -> list[Task]:
     """Run every task to a final state (DONE or FAILED). Order of the
-    returned list matches the input plan order."""
+    returned list matches the input plan order.
+
+    on_event, if given, is called with short REAL progress strings as work
+    actually happens (not scripted/decorative) — e.g. "Routing to Math
+    Solver", "Math Solver finished". Safe to call from worker threads."""
+    emit = on_event or (lambda _msg: None)
     by_id: dict[str, Task] = {t.id: t for t in tasks}
     finished: dict[str, Task] = {}
 
@@ -87,15 +94,19 @@ def execute_all(tasks: list[Task], registry: SpecialistRegistry,
             return task.model_copy(update={
                 "status": TaskStatus.FAILED,
                 "result": f"no specialist for category '{task.category}'"})
+        emit(f"Routing to {spec.name}\u2026")
         llm = get_llm(spec.llm_tier)
         current = _context_for(task, finished)
         for attempt in range(settings.max_retries + 1):
             result = run_specialist(spec, current, llm, tel)
             if result.status == TaskStatus.DONE:
+                emit(f"{spec.name} finished")
                 return result
             logger.warning("EXECUTOR | task %s attempt %d failed: %s",
                            task.id, attempt + 1, result.result)
+            emit(f"{spec.name} hit a snag, retrying\u2026")
             current = result.model_copy(update={"status": TaskStatus.PENDING})
+        emit(f"{spec.name} could not complete this")
         return result  # FAILED after retries
 
     with tel.span("executor", n_tasks=len(tasks)) as detail:

@@ -102,6 +102,14 @@ def cmd_chat() -> int:
             print("\n" + report.audit())
 
 
+def cmd_serve(port: int) -> int:
+    import uvicorn
+    print(f"Orchestra web UI: http://localhost:{port}  (Ctrl+C to stop)")
+    uvicorn.run("orchestra.web.server:app", host="127.0.0.1", port=port,
+                log_level=settings.log_level.lower())
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     _setup_logging()
     p = argparse.ArgumentParser(prog="orchestra")
@@ -112,9 +120,12 @@ def main(argv: list[str] | None = None) -> int:
     ask = sub.add_parser("ask")
     ask.add_argument("message")
     ask.add_argument("--audit", action="store_true")
+    serve = sub.add_parser("serve")
+    serve.add_argument("--port", type=int, default=8765)
     args = p.parse_args(argv)
     return {"chat": cmd_chat, "doctor": cmd_doctor, "stats": cmd_stats,
-            "ask": lambda: cmd_ask(args.message, args.audit)}[args.cmd]()
+            "ask": lambda: cmd_ask(args.message, args.audit),
+            "serve": lambda: cmd_serve(args.port)}[args.cmd]()
 
 
 if __name__ == "__main__":

@@ -55,6 +55,14 @@ class SpecialistSpec(BaseModel):
     # deterministically (Phase 5 fix). The tool's own output becomes the
     # result, so the user still sees what happened.
     terminal_tools: list[str] = []
+    # Tools whose FAILURE ends the task immediately as FAILED, verbatim —
+    # for calls a retry can't fix (missing API key, network/service down).
+    # Without this, a small model that sees an error sometimes "helpfully"
+    # invents a fake result instead of reporting the failure (observed live
+    # with Job Scout + a missing Tavily key: it fabricated example.com job
+    # postings). Argument-shape errors are NOT fatal — those stay retriable
+    # so the model can self-correct using the corrected-signature hint.
+    fatal_tools: list[str] = []
 
 
 class OrchestraState(TypedDict, total=False):
