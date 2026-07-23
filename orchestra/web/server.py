@@ -9,7 +9,7 @@ import json
 import queue
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -21,6 +21,7 @@ from ..engine.executor import execute_all
 from ..engine.pipeline import Orchestra
 from ..engine.planner import plan
 from ..llm.backends import get_llm
+from ..observability import history
 from ..observability.telemetry import Telemetry
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -31,6 +32,7 @@ _orchestra = Orchestra()  # one registry/instance for the process lifetime
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: str | None = None   # None -> start a new session
 
 
 class TaskView(BaseModel):
@@ -45,6 +47,26 @@ class ChatResponse(BaseModel):
     run_id: str
     ok: bool
     tasks: list[TaskView]
+    session_id: str
+
+
+class SessionView(BaseModel):
+    id: str
+    title: str
+    created_at: float
+    updated_at: float
+
+
+class MessageView(BaseModel):
+    id: str
+    role: str
+    text: str
+    run_id: str | None
+    created_at: float
+
+
+class RenameRequest(BaseModel):
+    title: str
 
 
 @app.get("/api/roster")
@@ -57,13 +79,49 @@ def roster() -> list[dict]:
     ]
 
 
+@app.get("/api/sessions", response_model=list[SessionView])
+def sessions_list():
+    return [SessionView(**s.__dict__) for s in history.list_sessions()]
+
+
+@app.get("/api/sessions/{session_id}", response_model=list[MessageView])
+def session_messages(session_id: str):
+    if not history.get_session(session_id):
+        raise HTTPException(status_code=404, detail="session not found")
+    return [
+        MessageView(id=m.id, role=m.role, text=m.text,
+                    run_id=m.run_id, created_at=m.created_at)
+        for m in history.list_messages(session_id)
+    ]
+
+
+@app.patch("/api/sessions/{session_id}", response_model=SessionView)
+def session_rename(session_id: str, req: RenameRequest):
+    if not history.get_session(session_id):
+        raise HTTPException(status_code=404, detail="session not found")
+    history.rename_session(session_id, req.title)
+    return SessionView(**history.get_session(session_id).__dict__)
+
+
+@app.delete("/api/sessions/{session_id}")
+def session_delete(session_id: str):
+    if not history.get_session(session_id):
+        raise HTTPException(status_code=404, detail="session not found")
+    history.delete_session(session_id)
+    return {"ok": True}
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
+    session_id = req.session_id or history.create_session(req.message).id
+    history.add_message(session_id, "user", req.message)
     report = _orchestra.handle(req.message)
+    history.add_message(session_id, "assistant", report.reply, run_id=report.run_id)
     return ChatResponse(
         reply=report.reply,
         run_id=report.run_id,
         ok=report.ok,
+        session_id=session_id,
         tasks=[
             TaskView(category=t.category, specialist=t.assigned_to,
                      status=t.status.value, description=t.description)
@@ -79,6 +137,8 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
     wait. Uses Server-Sent Events; the pipeline runs in a worker thread so
     the async loop stays free to flush each event as it's emitted."""
     q: queue.Queue = queue.Queue()
+    session_id = req.session_id or history.create_session(req.message).id
+    history.add_message(session_id, "user", req.message)
 
     def emit(text: str) -> None:
         q.put({"type": "progress", "text": text})
@@ -94,9 +154,11 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
                 tasks = execute_all(tasks, _orchestra.registry, tel, on_event=emit)
                 emit("Composing the final reply\u2026")
                 reply = aggregate(req.message, tasks, get_llm("fast"), tel)
+            history.add_message(session_id, "assistant", reply, run_id=tel.run_id)
             data = ChatResponse(
                 reply=reply, run_id=tel.run_id,
                 ok=all(t.status == TaskStatus.DONE for t in tasks),
+                session_id=session_id,
                 tasks=[TaskView(category=t.category, specialist=t.assigned_to,
                                 status=t.status.value, description=t.description)
                        for t in tasks],
@@ -106,6 +168,9 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
             q.put({"type": "error", "text": str(exc)})
 
     async def event_source():
+        # Emit session_id up front so the browser can link the new chat to
+        # the sidebar even before the first task finishes.
+        yield f"data: {json.dumps({'type': 'session', 'id': session_id})}\n\n"
         loop = asyncio.get_event_loop()
         pipeline_future = loop.run_in_executor(None, run_pipeline)
         while True:

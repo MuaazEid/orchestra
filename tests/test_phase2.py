@@ -259,7 +259,7 @@ def test_bad_args_error_includes_correct_signature():
 
 
 # ── fatal_tools: error stops the task instead of letting the model
-#    hallucinate past it (bug found live: a search-style specialist with a misconfigured external service
+#    hallucinate past it (bug found live: Job Scout + missing Tavily key
 #    fabricated fake job postings instead of reporting the failure) ────
 def test_fatal_tool_error_fails_task_immediately_no_hallucination():
     from orchestra.agents.toolbox import tool as _tool

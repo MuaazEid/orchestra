@@ -18,6 +18,17 @@ cd C:\dev\orchestra
 .\dev.ps1
 ```
 
+### One-click launcher (optional, do it once)
+
+```powershell
+cd C:\dev\orchestra
+powershell -ExecutionPolicy Bypass -File scripts\install-shortcut.ps1
+```
+
+Creates an **Orchestra** shortcut on your desktop with a distinctive amber
+icon. Double-click it and you're running — same `dev.ps1` under the hood,
+just no typing.
+
 `dev.ps1` does three things automatically:
 
 1. `git pull` — grabs anything new I pushed

@@ -9,8 +9,9 @@
 <style>
   :root{
     --bg:#0A0E17; --panel:#121A2B; --panel-2:#0E1420; --line:#232B42;
-    --text:#E7EAF2; --muted:#7C89A8; --amber:#E8A33D; --cyan:#4FD1C5;
-    --danger:#E06B6B; --radius:10px;
+    --text:#E7EAF2; --muted:#7C89A8; --muted-2:#4A5773;
+    --amber:#E8A33D; --cyan:#4FD1C5; --danger:#E06B6B;
+    --radius:10px;
     --mono:'JetBrains Mono', ui-monospace, monospace;
     --sans:'Inter', system-ui, -apple-system, sans-serif;
   }
@@ -24,12 +25,60 @@
       radial-gradient(1.5px 1.5px at 40% 80%, rgba(231,234,242,.3) 0, transparent 60%),
       radial-gradient(1px 1px at 85% 15%, rgba(231,234,242,.25) 0, transparent 60%);
   }
-  .app{display:grid; grid-template-columns:260px 1fr; height:100vh}
-  @media (max-width:720px){ .app{grid-template-columns:1fr} .roster{display:none} }
+  .app{display:grid; grid-template-columns:240px 240px 1fr; height:100vh}
+  @media (max-width:1000px){ .app{grid-template-columns:220px 1fr} .roster{display:none} }
+  @media (max-width:720px){ .app{grid-template-columns:1fr} .sessions{display:none} }
 
+  /* ── Sessions column ─────────────────────────────────────────── */
+  .sessions{
+    background:var(--panel-2); border-right:1px solid var(--line);
+    display:flex; flex-direction:column; min-height:0;
+  }
+  .sessions-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 14px 10px; border-bottom:1px solid var(--line);
+  }
+  .sessions-header .brand{
+    font-family:var(--mono); font-size:11px; letter-spacing:.14em; color:var(--muted);
+  }
+  .new-chat{
+    background:transparent; border:1px solid var(--line); color:var(--text);
+    border-radius:8px; padding:5px 10px; font-family:var(--sans); font-size:12px;
+    cursor:pointer; transition:border-color .15s ease, background .15s ease;
+  }
+  .new-chat:hover{border-color:var(--amber); background:rgba(232,163,61,.08)}
+  .session-list{overflow-y:auto; padding:8px}
+  .session-item{
+    padding:8px 10px; border-radius:8px; cursor:pointer;
+    font-size:13px; color:var(--muted); line-height:1.3;
+    transition:background .12s ease, color .12s ease;
+    display:flex; align-items:center; gap:6px;
+    position:relative;
+  }
+  .session-item:hover{background:var(--panel); color:var(--text)}
+  .session-item.active{background:var(--panel); color:var(--text)}
+  .session-item.active::before{
+    content:''; position:absolute; left:0; top:6px; bottom:6px; width:2px;
+    background:var(--amber); border-radius:2px;
+  }
+  .session-title{
+    flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .session-del{
+    opacity:0; background:none; border:none; color:var(--muted-2);
+    cursor:pointer; padding:2px 4px; font-size:14px; line-height:1;
+    transition:opacity .12s ease, color .12s ease;
+  }
+  .session-item:hover .session-del{opacity:1}
+  .session-del:hover{color:var(--danger)}
+  .sessions-empty{
+    padding:16px 14px; color:var(--muted-2); font-size:12px; line-height:1.5;
+  }
+
+  /* ── Roster column ───────────────────────────────────────────── */
   .roster{
     position:relative; background:var(--panel-2); border-right:1px solid var(--line);
-    padding:20px 16px; overflow:hidden;
+    padding:16px 14px; overflow:hidden;
   }
   .roster-header{
     font-family:var(--mono); font-size:11px; letter-spacing:.14em; color:var(--muted);
@@ -42,10 +91,9 @@
   }
   .constellation-svg line.lit{opacity:.85}
   @media (prefers-reduced-motion:reduce){ .constellation-svg line{transition:none} }
-
   .nodes{position:relative; z-index:1; display:flex; flex-direction:column; gap:10px}
   .node{
-    display:flex; align-items:center; gap:10px; padding:8px 10px;
+    display:flex; align-items:center; gap:10px; padding:6px 8px;
     border-radius:var(--radius); border:1px solid transparent;
   }
   .node .dot{
@@ -54,9 +102,10 @@
     transition:background .5s ease, box-shadow .5s ease;
   }
   .node.active .dot{background:var(--amber); box-shadow:0 0 10px 2px rgba(232,163,61,.6)}
-  .node .label{font-family:var(--mono); font-size:12.5px; color:var(--muted); transition:color .5s ease}
+  .node .label{font-family:var(--mono); font-size:12px; color:var(--muted); transition:color .5s ease}
   .node.active .label{color:var(--text)}
 
+  /* ── Chat column ─────────────────────────────────────────────── */
   main.chat{display:flex; flex-direction:column; min-width:0}
   .chat-header{
     padding:18px 24px; border-bottom:1px solid var(--line);
@@ -115,19 +164,26 @@
 </head>
 <body>
   <div class="app">
+    <aside class="sessions">
+      <div class="sessions-header">
+        <span class="brand">CHATS</span>
+        <button class="new-chat" id="new-chat" title="Start a new chat">+ New</button>
+      </div>
+      <div class="session-list" id="session-list"></div>
+    </aside>
+
     <aside class="roster">
       <div class="roster-header">ROSTER</div>
       <svg class="constellation-svg" id="svg"></svg>
       <div class="nodes" id="nodes"></div>
     </aside>
+
     <main class="chat">
       <header class="chat-header">
         <h1>ORCHESTRA</h1>
         <span class="subtitle">local multi-agent orchestrator</span>
       </header>
-      <div class="messages" id="messages">
-        <div class="msg system">Ask it anything — watch the roster light up as specialists get called.</div>
-      </div>
+      <div class="messages" id="messages"></div>
       <form class="composer" id="composer">
         <input id="input" placeholder="Ask Orchestra..." autocomplete="off" />
         <button type="submit" id="send">Send</button>
@@ -142,9 +198,16 @@ const messagesEl = document.getElementById('messages');
 const form = document.getElementById('composer');
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
+const sessionListEl = document.getElementById('session-list');
+const newChatBtn = document.getElementById('new-chat');
 
+/** Global UI state.
+ *  currentSessionId: the session being displayed. `null` means "no session yet"
+ *  — the next message will create one server-side and we bind to its id. */
 let roster = [];
+let currentSessionId = null;
 
+// ── Roster (unchanged) ────────────────────────────────────────────
 async function loadRoster() {
   const res = await fetch('/api/roster');
   roster = await res.json();
@@ -183,6 +246,63 @@ function litSequence(specialistNames) {
   });
 }
 
+// ── Sessions sidebar ──────────────────────────────────────────────
+async function loadSessions() {
+  const res = await fetch('/api/sessions');
+  const sessions = await res.json();
+  if (!sessions.length) {
+    sessionListEl.innerHTML = `<div class="sessions-empty">No chats yet. Ask something to start one.</div>`;
+    return;
+  }
+  sessionListEl.innerHTML = sessions.map(s => `
+    <div class="session-item ${s.id === currentSessionId ? 'active' : ''}" data-id="${s.id}">
+      <span class="session-title">${escapeHtml(s.title)}</span>
+      <button class="session-del" data-id="${s.id}" title="Delete this chat">×</button>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+sessionListEl.addEventListener('click', async (e) => {
+  const delBtn = e.target.closest('.session-del');
+  if (delBtn) {
+    e.stopPropagation();
+    const id = delBtn.dataset.id;
+    await fetch('/api/sessions/' + id, {method: 'DELETE'});
+    if (id === currentSessionId) startNewChat();
+    else loadSessions();
+    return;
+  }
+  const item = e.target.closest('.session-item');
+  if (item) openSession(item.dataset.id);
+});
+
+newChatBtn.addEventListener('click', startNewChat);
+
+function startNewChat() {
+  currentSessionId = null;
+  messagesEl.innerHTML = `<div class="msg system">Ask it anything — watch the roster light up as specialists get called.</div>`;
+  clearConstellation();
+  loadSessions();
+  input.focus();
+}
+
+async function openSession(id) {
+  currentSessionId = id;
+  clearConstellation();
+  messagesEl.innerHTML = '';
+  const res = await fetch('/api/sessions/' + id);
+  const msgs = await res.json();
+  for (const m of msgs) {
+    addMessage(m.role === 'user' ? 'user' : 'assistant', m.text);
+  }
+  loadSessions();
+}
+
+// ── Chat rendering ────────────────────────────────────────────────
 function addMessage(role, text) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
@@ -200,7 +320,7 @@ function addAudit(container, tasks, runId) {
   const panel = document.createElement('div');
   panel.className = 'audit';
   panel.innerHTML = tasks.map(t =>
-    `<div class="row"><span class="status-${t.status}">[${t.status}]</span><span>(${t.category}) ${t.specialist||'-'}: ${t.description.slice(0,70)}</span></div>`
+    `<div class="row"><span class="status-${t.status}">[${t.status}]</span><span>(${t.category}) ${t.specialist||'-'}: ${escapeHtml(t.description.slice(0,70))}</span></div>`
   ).join('');
   btn.onclick = () => {
     panel.classList.toggle('open');
@@ -211,6 +331,7 @@ function addAudit(container, tasks, runId) {
   container.appendChild(panel);
 }
 
+// ── Send ──────────────────────────────────────────────────────────
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const text = input.value.trim();
@@ -229,7 +350,7 @@ form.addEventListener('submit', async (e) => {
   try {
     const res = await fetch('/api/chat/stream', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({message: text}),
+      body: JSON.stringify({message: text, session_id: currentSessionId}),
     });
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -241,11 +362,16 @@ form.addEventListener('submit', async (e) => {
       if (done) break;
       buf += decoder.decode(value, {stream: true});
       const lines = buf.split('\n\n');
-      buf = lines.pop(); // keep the last (possibly incomplete) chunk
+      buf = lines.pop();
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         const item = JSON.parse(line.slice(6));
-        if (item.type === 'progress') {
+        if (item.type === 'session') {
+          if (!currentSessionId) {
+            currentSessionId = item.id;
+            loadSessions();
+          }
+        } else if (item.type === 'progress') {
           label.textContent = item.text;
           messagesEl.scrollTop = messagesEl.scrollHeight;
         } else if (item.type === 'done') {
@@ -262,6 +388,7 @@ form.addEventListener('submit', async (e) => {
       litSequence(specialists);
       const container = addMessage('assistant', finalData.reply);
       if (finalData.tasks.length) addAudit(container, finalData.tasks, finalData.run_id);
+      loadSessions(); // updated_at bump reorders the list
     }
   } catch (err) {
     thinking.remove();
@@ -271,7 +398,10 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
+// ── Boot ──────────────────────────────────────────────────────────
 loadRoster();
+loadSessions();
+startNewChat();
 </script>
 </body>
 </html>

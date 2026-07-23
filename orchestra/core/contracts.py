@@ -59,7 +59,7 @@ class SpecialistSpec(BaseModel):
     # for calls a retry can't fix (missing API key, network/service down).
     # Without this, a small model that sees an error sometimes "helpfully"
     # invents a fake result instead of reporting the failure (observed live
-    # with a search-style tool whose external service was misconfigured: it fabricated fake job
+    # with Job Scout + a missing Tavily key: it fabricated example.com job
     # postings, before this fix). Argument-shape errors are NOT fatal —
     # those stay retriable so the model can self-correct using the
     # corrected-signature hint.
