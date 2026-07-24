@@ -93,7 +93,7 @@ aggregator       7   100%   5.31    8.03
 - **Sandboxed side effects** — file tools are confined to a workspace with cross-platform path-traversal protection (the `..\` Windows case is unit-tested).
 - **Observability first** — every span (planner, specialist, tool call) is timed and logged to SQLite; `orchestra stats` reports real success rates and latencies.
 
-**88 unit tests**, all runnable without Ollama via a scripted `MockLLM` — the whole graph, including the web transport layer, is testable on any machine.
+**103 unit tests**, all runnable without Ollama via a scripted `MockLLM` — the whole graph, including the web transport layer, is testable on any machine.
 
 ## Specialists at a glance
 
@@ -163,11 +163,11 @@ that fails the build if an external URL ever creeps back in.
 | `orchestra/engine/` | planner · dependency executor · aggregator · pipeline |
 | `orchestra/observability/` | SQLite telemetry + stats reports |
 | `orchestra/web/` | FastAPI transport + a dependency-free browser client |
-| `tests/` | 88 tests covering routing, loops, sandboxing, context rules, history, HTTP |
+| `tests/` | 103 tests covering routing, loops, sandboxing, context rules, history, HTTP, language pinning |
 
 ## Honest limits
 
-A 7B local model will not match frontier models on open-ended reasoning or fine prose. This architecture compensates on **structured** work — routing, tool use, memory, file operations — where measured task success is 100% across the benchmark suite. Concurrency overlaps I/O; Ollama largely serializes inference on a single GPU. Complex chains take minutes, not seconds. All of this is by design for the zero-cost constraint.
+A 7B local model will not match frontier models on open-ended reasoning or fine prose. The qwen family also drifts into Chinese under pressure; Orchestra pins the reply language per-request and retries once if CJK characters leak, falling back to a labeled join rather than returning the wrong language. This architecture compensates on **structured** work — routing, tool use, memory, file operations — where measured task success is 100% across the benchmark suite. Concurrency overlaps I/O; Ollama largely serializes inference on a single GPU. Complex chains take minutes, not seconds. All of this is by design for the zero-cost constraint.
 
 ## Author
 

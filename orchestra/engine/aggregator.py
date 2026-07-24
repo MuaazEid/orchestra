@@ -13,6 +13,7 @@ import logging
 
 from ..core.contracts import Task, TaskStatus
 from ..llm.adapter import LLMClient, LLMError
+from ..llm.language import CORRECTION, has_cjk_leak, language_instruction
 from ..observability.telemetry import Telemetry
 
 logger = logging.getLogger(__name__)
@@ -45,18 +46,29 @@ def aggregate(user_message: str, tasks: list[Task],
     if len(tasks) == 1 and done:
         return tasks[0].result
 
+    # Per-request language pin: naming the target language explicitly is
+    # what keeps a 7B qwen from drifting into Chinese on Arabic input.
+    system = _AGG_PROMPT + " " + language_instruction(user_message)
+    user = (f"User request: {user_message}\n\n"
+            f"Sub-task results:\n{_labeled_join(tasks)}")
+
     with tel.span("aggregator", n=len(tasks), failed=len(failed)):
+        messages = [{"role": "system", "content": system},
+                    {"role": "user", "content": user}]
         try:
-            reply = llm.chat(
-                [{"role": "system", "content": _AGG_PROMPT},
-                 {"role": "user", "content":
-                     f"User request: {user_message}\n\n"
-                     f"Sub-task results:\n{_labeled_join(tasks)}"}],
-                temperature=0.2,
-            )
-            text = reply.text.strip()
-            if text:
-                return text
+            for attempt in (1, 2):
+                reply = llm.chat(messages, temperature=0.2)
+                text = reply.text.strip()
+                if not text:
+                    break
+                if not has_cjk_leak(text, user_message):
+                    return text
+                # CJK drift detected: retry ONCE with a corrective turn,
+                # then give up to the labeled join — wrong format beats
+                # wrong language.
+                logger.warning("AGGREGATOR | CJK leak on attempt %d", attempt)
+                messages += [{"role": "assistant", "content": text},
+                             {"role": "user", "content": CORRECTION}]
         except LLMError as exc:
             logger.warning("AGGREGATOR | fallback to join: %s", exc)
         return _labeled_join(tasks)
