@@ -1,4 +1,6 @@
-# Orchestra — Local Multi-Agent Orchestrator
+# Orchestra — Local Multi-Agent Orchestrator
+
+![tests](https://github.com/MuaazEid/orchestra/actions/workflows/tests.yml/badge.svg)
 
 A production-grade multi-agent AI system that runs **entirely on local hardware** at **zero cost** — no cloud APIs, no subscriptions. Built with Python and Ollama (qwen2.5:7b) on a 16GB consumer laptop.
 
