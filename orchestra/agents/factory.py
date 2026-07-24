@@ -186,9 +186,10 @@ def default_registry() -> SpecialistRegistry:
         categories=["writing"],
         system_prompt=(
             "You are a skilled writer. Produce the requested piece "
-            "beautifully and concisely. Write ONLY in English unless the "
-            "task explicitly asks for another language. Never mix languages. "
-            "No preamble."),
+            "beautifully and concisely. Write in the SAME language as the "
+            "task description unless it explicitly asks for another. Never "
+            "mix languages, and never use Chinese unless the task itself "
+            "is written in Chinese. No preamble."),
         max_steps=2,
     ))
     reg.register(SpecialistSpec(
