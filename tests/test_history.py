@@ -90,3 +90,42 @@ def test_delete_session_cascades_to_messages():
 
 def test_get_session_returns_none_for_unknown_id():
     assert history.get_session("does-not-exist") is None
+
+
+# ── Rewind (the storage half of "regenerate") ─────────────────────
+def test_rewind_drops_trailing_assistant_and_returns_user_text():
+    s = history.create_session("first question")
+    history.add_message(s.id, "user", "first question")
+    history.add_message(s.id, "assistant", "first answer", run_id="r1")
+
+    assert history.rewind_to_last_user(s.id) == "first question"
+
+    roles = [m.role for m in history.list_messages(s.id)]
+    assert roles == ["user"]          # the reply is gone, the prompt stays
+
+
+def test_rewind_keeps_earlier_turns_intact():
+    s = history.create_session("q1")
+    history.add_message(s.id, "user", "q1")
+    history.add_message(s.id, "assistant", "a1")
+    history.add_message(s.id, "user", "q2")
+    history.add_message(s.id, "assistant", "a2")
+
+    assert history.rewind_to_last_user(s.id) == "q2"
+    assert [(m.role, m.text) for m in history.list_messages(s.id)] == [
+        ("user", "q1"), ("assistant", "a1"), ("user", "q2"),
+    ]
+
+
+def test_rewind_is_idempotent_when_reply_already_removed():
+    s = history.create_session("only a prompt")
+    history.add_message(s.id, "user", "only a prompt")
+
+    assert history.rewind_to_last_user(s.id) == "only a prompt"
+    assert history.rewind_to_last_user(s.id) == "only a prompt"
+
+
+def test_rewind_returns_none_for_empty_or_unknown_session():
+    s = history.create_session("empty")
+    assert history.rewind_to_last_user(s.id) is None
+    assert history.rewind_to_last_user("does-not-exist") is None

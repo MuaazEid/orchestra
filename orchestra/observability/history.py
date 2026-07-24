@@ -142,3 +142,31 @@ def rename_session(session_id: str, title: str) -> None:
 def delete_session(session_id: str) -> None:
     with _conn() as c:
         c.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+
+
+def rewind_to_last_user(session_id: str) -> str | None:
+    """Drop the trailing assistant turn(s) and return the user text that
+    produced them — the storage half of "regenerate".
+
+    Rewinding *before* the re-run (instead of overwriting after) keeps the
+    invariant that history is always a valid alternating transcript, even
+    if the new run crashes halfway. Returns None when there's nothing to
+    regenerate, so the caller can answer 400 instead of guessing.
+    """
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, role, text FROM messages WHERE session_id = ? "
+            "ORDER BY created_at", (session_id,)).fetchall()
+        if not rows:
+            return None
+        trailing = []
+        idx = len(rows) - 1
+        while idx >= 0 and rows[idx][1] == "assistant":
+            trailing.append(rows[idx][0])
+            idx -= 1
+        if idx < 0 or rows[idx][1] != "user":
+            return None            # no user turn to replay — nothing to do
+        if trailing:
+            c.executemany("DELETE FROM messages WHERE id = ?",
+                          [(mid,) for mid in trailing])
+        return rows[idx][2]

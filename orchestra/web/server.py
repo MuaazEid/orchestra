@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..agents.factory import default_registry
+from ..core.config import settings
 from ..core.contracts import TaskStatus
 from ..engine.aggregator import aggregate
 from ..engine.executor import execute_all
@@ -31,8 +32,9 @@ _orchestra = Orchestra()  # one registry/instance for the process lifetime
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = ""
     session_id: str | None = None   # None -> start a new session
+    regenerate: bool = False        # replay the last user turn, drop its reply
 
 
 class TaskView(BaseModel):
@@ -67,6 +69,46 @@ class MessageView(BaseModel):
 
 class RenameRequest(BaseModel):
     title: str
+
+
+def _resolve_turn(req: ChatRequest) -> tuple[str, str]:
+    """Work out which session this turn belongs to and what text to run.
+
+    Two modes collapse into one contract so /api/chat and /api/chat/stream
+    can't drift apart:
+      normal      -> (session, req.message), user turn appended
+      regenerate  -> (session, last user text), trailing reply dropped
+    """
+    if req.regenerate:
+        if not req.session_id:
+            raise HTTPException(400, "regenerate requires a session_id")
+        if not history.get_session(req.session_id):
+            raise HTTPException(404, "session not found")
+        text = history.rewind_to_last_user(req.session_id)
+        if not text:
+            raise HTTPException(400, "nothing to regenerate in this session")
+        return req.session_id, text
+
+    if not req.message.strip():
+        raise HTTPException(400, "message must not be empty")
+    session_id = req.session_id or history.create_session(req.message).id
+    history.add_message(session_id, "user", req.message)
+    return session_id, req.message
+
+
+@app.get("/api/health")
+def health() -> dict:
+    """What the browser needs to show an honest status line: which backend
+    is really answering, and which models. Cheap enough to poll."""
+    reg = default_registry()
+    return {
+        "ok": True,
+        "backend": settings.llm_backend,
+        "main_model": settings.main_model,
+        "fast_model": settings.fast_model,
+        "concurrency": settings.max_concurrency,
+        "specialists": len(reg._specs),  # noqa: SLF001 (read-only introspection)
+    }
 
 
 @app.get("/api/roster")
@@ -113,9 +155,8 @@ def session_delete(session_id: str):
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
-    session_id = req.session_id or history.create_session(req.message).id
-    history.add_message(session_id, "user", req.message)
-    report = _orchestra.handle(req.message)
+    session_id, text = _resolve_turn(req)
+    report = _orchestra.handle(text)
     history.add_message(session_id, "assistant", report.reply, run_id=report.run_id)
     return ChatResponse(
         reply=report.reply,
@@ -137,23 +178,28 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
     wait. Uses Server-Sent Events; the pipeline runs in a worker thread so
     the async loop stays free to flush each event as it's emitted."""
     q: queue.Queue = queue.Queue()
-    session_id = req.session_id or history.create_session(req.message).id
-    history.add_message(session_id, "user", req.message)
+    session_id, user_text = _resolve_turn(req)
+
+    # The executor emits human-readable progress lines. Tagging each one
+    # with the specialist it names lets the browser light its roster while
+    # the run is happening, instead of parsing prose on the client.
+    spec_names = [s.name for s in _orchestra.registry._specs.values()]  # noqa: SLF001
 
     def emit(text: str) -> None:
-        q.put({"type": "progress", "text": text})
+        named = next((n for n in spec_names if n in text), None)
+        q.put({"type": "progress", "text": text, "specialist": named})
 
     def run_pipeline() -> None:
         try:
             tel = Telemetry.new_run()
-            with tel.span("run", input=req.message[:80]):
+            with tel.span("run", input=user_text[:80]):
                 emit("Planning your request\u2026")
-                tasks = plan(req.message, _orchestra.registry, get_llm("main"), tel)
+                tasks = plan(user_text, _orchestra.registry, get_llm("main"), tel)
                 cats = ", ".join(t.category for t in tasks) or "nothing to do"
                 emit(f"Planned {len(tasks)} task(s): {cats}")
                 tasks = execute_all(tasks, _orchestra.registry, tel, on_event=emit)
                 emit("Composing the final reply\u2026")
-                reply = aggregate(req.message, tasks, get_llm("fast"), tel)
+                reply = aggregate(user_text, tasks, get_llm("fast"), tel)
             history.add_message(session_id, "assistant", reply, run_id=tel.run_id)
             data = ChatResponse(
                 reply=reply, run_id=tel.run_id,
