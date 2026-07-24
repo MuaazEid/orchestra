@@ -93,7 +93,7 @@ aggregator       7   100%   5.31    8.03
 - **Sandboxed side effects** — file tools are confined to a workspace with cross-platform path-traversal protection (the `..\` Windows case is unit-tested).
 - **Observability first** — every span (planner, specialist, tool call) is timed and logged to SQLite; `orchestra stats` reports real success rates and latencies.
 
-**53 unit tests**, all runnable without Ollama via a scripted `MockLLM` — the whole graph is testable on any machine.
+**88 unit tests**, all runnable without Ollama via a scripted `MockLLM` — the whole graph, including the web transport layer, is testable on any machine.
 
 ## Specialists at a glance
 
@@ -129,9 +129,29 @@ python smoke_test.py              # 6-case benchmark with timings
 
 `python -m orchestra serve` starts a local FastAPI server (same `Orchestra.handle()`
 the CLI uses — no separate logic) and opens a browser-based chat at
-`localhost:8765`. The sidebar roster lights up and connects, in order, as a
-request's tasks are routed to specialists — a visual trace of the same
-planner → executor → aggregator flow `/audit` shows as text in the CLI.
+`localhost:8765`.
+
+The roster on the left lights up and connects **while the run is happening** —
+each progress event is tagged server-side with the specialist it names, so the
+constellation is a live trace of the same planner → executor → aggregator flow
+`/audit` prints as text in the CLI. Every reply keeps its audit panel: task
+status, category, and the specialist that was resolved for it.
+
+| | |
+|---|---|
+| **Persistent history** | SQLite-backed sessions in a sidebar — rename inline, delete with a confirm step, resume after a restart |
+| **Real Markdown** | headings, lists, tables, blockquotes, and code blocks with per-block copy |
+| **Regenerate** | replays the last user turn against a fresh run; history is rewound first, so the transcript is never left with two answers to one question |
+| **Command palette** | `Ctrl/⌘ K` — fuzzy search across chats and commands |
+| **Keyboard-first** | `N` new · `/` focus · `R` regenerate · `C` copy · `T` theme · `B` sidebar · `[` `]` chats · `?` shortcuts |
+| **Light and dark** | follows the OS by default, applied before first paint so it never flashes |
+
+**No CDN, no build step, no `node_modules`.** The client is three static files
+served straight off disk; even the Markdown renderer is vendored (~200 lines,
+escape-first so model output can never become live HTML). Orchestra's premise is
+that it runs with no cloud — a UI that blocked first paint on a Google font
+would quietly break that on the offline machine it was built for. There's a test
+that fails the build if an external URL ever creeps back in.
 
 ## Project layout
 
@@ -142,7 +162,8 @@ planner → executor → aggregator flow `/audit` shows as text in the CLI.
 | `orchestra/agents/` | tool registry · specialist factory · shared ReAct engine |
 | `orchestra/engine/` | planner · dependency executor · aggregator · pipeline |
 | `orchestra/observability/` | SQLite telemetry + stats reports |
-| `tests/` | 53 tests covering routing, loops, sandboxing, context rules |
+| `orchestra/web/` | FastAPI transport + a dependency-free browser client |
+| `tests/` | 88 tests covering routing, loops, sandboxing, context rules, history, HTTP |
 
 ## Honest limits
 

@@ -1,407 +1,186 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark light" />
+<meta name="description" content="Orchestra — a local multi-agent orchestrator running entirely on your own hardware." />
 <title>Orchestra</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<style>
-  :root{
-    --bg:#0A0E17; --panel:#121A2B; --panel-2:#0E1420; --line:#232B42;
-    --text:#E7EAF2; --muted:#7C89A8; --muted-2:#4A5773;
-    --amber:#E8A33D; --cyan:#4FD1C5; --danger:#E06B6B;
-    --radius:10px;
-    --mono:'JetBrains Mono', ui-monospace, monospace;
-    --sans:'Inter', system-ui, -apple-system, sans-serif;
-  }
-  *{box-sizing:border-box}
-  html,body{height:100%}
-  body{
-    margin:0; background:var(--bg); color:var(--text); font-family:var(--sans);
-    background-image:
-      radial-gradient(1px 1px at 20% 30%, rgba(231,234,242,.35) 0, transparent 60%),
-      radial-gradient(1px 1px at 70% 65%, rgba(231,234,242,.25) 0, transparent 60%),
-      radial-gradient(1.5px 1.5px at 40% 80%, rgba(231,234,242,.3) 0, transparent 60%),
-      radial-gradient(1px 1px at 85% 15%, rgba(231,234,242,.25) 0, transparent 60%);
-  }
-  .app{display:grid; grid-template-columns:240px 240px 1fr; height:100vh}
-  @media (max-width:1000px){ .app{grid-template-columns:220px 1fr} .roster{display:none} }
-  @media (max-width:720px){ .app{grid-template-columns:1fr} .sessions{display:none} }
 
-  /* ── Sessions column ─────────────────────────────────────────── */
-  .sessions{
-    background:var(--panel-2); border-right:1px solid var(--line);
-    display:flex; flex-direction:column; min-height:0;
-  }
-  .sessions-header{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:16px 14px 10px; border-bottom:1px solid var(--line);
-  }
-  .sessions-header .brand{
-    font-family:var(--mono); font-size:11px; letter-spacing:.14em; color:var(--muted);
-  }
-  .new-chat{
-    background:transparent; border:1px solid var(--line); color:var(--text);
-    border-radius:8px; padding:5px 10px; font-family:var(--sans); font-size:12px;
-    cursor:pointer; transition:border-color .15s ease, background .15s ease;
-  }
-  .new-chat:hover{border-color:var(--amber); background:rgba(232,163,61,.08)}
-  .session-list{overflow-y:auto; padding:8px}
-  .session-item{
-    padding:8px 10px; border-radius:8px; cursor:pointer;
-    font-size:13px; color:var(--muted); line-height:1.3;
-    transition:background .12s ease, color .12s ease;
-    display:flex; align-items:center; gap:6px;
-    position:relative;
-  }
-  .session-item:hover{background:var(--panel); color:var(--text)}
-  .session-item.active{background:var(--panel); color:var(--text)}
-  .session-item.active::before{
-    content:''; position:absolute; left:0; top:6px; bottom:6px; width:2px;
-    background:var(--amber); border-radius:2px;
-  }
-  .session-title{
-    flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  }
-  .session-del{
-    opacity:0; background:none; border:none; color:var(--muted-2);
-    cursor:pointer; padding:2px 4px; font-size:14px; line-height:1;
-    transition:opacity .12s ease, color .12s ease;
-  }
-  .session-item:hover .session-del{opacity:1}
-  .session-del:hover{color:var(--danger)}
-  .sessions-empty{
-    padding:16px 14px; color:var(--muted-2); font-size:12px; line-height:1.5;
-  }
+<!-- Inline SVG favicon: three lit nodes. No extra request, no binary in git. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='8' cy='22' r='3.4' fill='%23E8A33D'/%3E%3Ccircle cx='16' cy='9' r='3.4' fill='%23E8A33D'/%3E%3Ccircle cx='25' cy='19' r='3.4' fill='%23E8A33D'/%3E%3Cpath d='M8 22 16 9l9 10' stroke='%23E8A33D' stroke-width='1.6' fill='none' opacity='.55'/%3E%3C/svg%3E" />
 
-  /* ── Roster column ───────────────────────────────────────────── */
-  .roster{
-    position:relative; background:var(--panel-2); border-right:1px solid var(--line);
-    padding:16px 14px; overflow:hidden;
-  }
-  .roster-header{
-    font-family:var(--mono); font-size:11px; letter-spacing:.14em; color:var(--muted);
-    margin-bottom:16px;
-  }
-  .constellation-svg{position:absolute; inset:0; width:100%; height:100%; pointer-events:none}
-  .constellation-svg line{
-    stroke:var(--amber); stroke-width:1.3; opacity:0;
-    stroke-dasharray:6 4; transition:opacity .4s ease;
-  }
-  .constellation-svg line.lit{opacity:.85}
-  @media (prefers-reduced-motion:reduce){ .constellation-svg line{transition:none} }
-  .nodes{position:relative; z-index:1; display:flex; flex-direction:column; gap:10px}
-  .node{
-    display:flex; align-items:center; gap:10px; padding:6px 8px;
-    border-radius:var(--radius); border:1px solid transparent;
-  }
-  .node .dot{
-    width:9px; height:9px; border-radius:50%; background:var(--muted);
-    box-shadow:0 0 0 rgba(232,163,61,0); flex:none;
-    transition:background .5s ease, box-shadow .5s ease;
-  }
-  .node.active .dot{background:var(--amber); box-shadow:0 0 10px 2px rgba(232,163,61,.6)}
-  .node .label{font-family:var(--mono); font-size:12px; color:var(--muted); transition:color .5s ease}
-  .node.active .label{color:var(--text)}
-
-  /* ── Chat column ─────────────────────────────────────────────── */
-  main.chat{display:flex; flex-direction:column; min-width:0}
-  .chat-header{
-    padding:18px 24px; border-bottom:1px solid var(--line);
-    display:flex; align-items:baseline; gap:10px;
-  }
-  .chat-header h1{
-    font-family:var(--mono); font-size:16px; letter-spacing:.1em; margin:0; font-weight:600;
-  }
-  .chat-header .subtitle{font-size:12.5px; color:var(--muted)}
-
-  .messages{flex:1; overflow-y:auto; padding:24px; display:flex; flex-direction:column; gap:16px}
-  .msg{max-width:640px; line-height:1.55; font-size:14.5px}
-  .msg.user{align-self:flex-end; background:var(--panel); border:1px solid var(--line);
-    padding:10px 14px; border-radius:var(--radius)}
-  .msg.assistant{align-self:flex-start; padding:2px 2px}
-  .msg.assistant .bubble{background:transparent; white-space:pre-wrap}
-  .msg.system{align-self:center; color:var(--muted); font-family:var(--mono); font-size:12px}
-
-  .audit-toggle{
-    margin-top:8px; font-family:var(--mono); font-size:11px; color:var(--cyan);
-    background:none; border:none; cursor:pointer; padding:0; letter-spacing:.04em;
-  }
-  .audit-toggle:hover{text-decoration:underline}
-  .audit{
-    margin-top:8px; border:1px solid var(--line); border-radius:var(--radius);
-    background:var(--panel-2); padding:10px 12px; font-family:var(--mono); font-size:11.5px;
-    color:var(--muted); display:none;
-  }
-  .audit.open{display:block}
-  .audit .row{display:flex; gap:8px; padding:3px 0}
-  .audit .status-done{color:var(--cyan)}
-  .audit .status-failed{color:var(--danger)}
-  .audit .status-blocked{color:var(--muted)}
-
-  .thinking{
-    display:flex; align-items:center; gap:8px; align-self:flex-start; padding:6px 0;
-    font-family:var(--mono); font-size:12.5px; color:var(--muted);
-  }
-  .thinking-dot{color:var(--amber); animation:pulse 1.1s infinite ease-in-out}
-  .thinking-text{transition:opacity .15s ease}
-  @keyframes pulse{0%,100%{opacity:.35} 50%{opacity:1}}
-
-  .composer{display:flex; gap:10px; padding:16px 24px; border-top:1px solid var(--line)}
-  .composer input{
-    flex:1; background:var(--panel); border:1px solid var(--line); color:var(--text);
-    border-radius:var(--radius); padding:11px 14px; font-family:var(--sans); font-size:14px;
-    outline:none;
-  }
-  .composer input:focus{border-color:var(--amber)}
-  .composer button{
-    background:var(--amber); color:#1a1204; border:none; border-radius:var(--radius);
-    padding:0 20px; font-family:var(--sans); font-weight:600; font-size:14px; cursor:pointer;
-  }
-  .composer button:disabled{opacity:.5; cursor:default}
-</style>
-</head>
-<body>
-  <div class="app">
-    <aside class="sessions">
-      <div class="sessions-header">
-        <span class="brand">CHATS</span>
-        <button class="new-chat" id="new-chat" title="Start a new chat">+ New</button>
-      </div>
-      <div class="session-list" id="session-list"></div>
-    </aside>
-
-    <aside class="roster">
-      <div class="roster-header">ROSTER</div>
-      <svg class="constellation-svg" id="svg"></svg>
-      <div class="nodes" id="nodes"></div>
-    </aside>
-
-    <main class="chat">
-      <header class="chat-header">
-        <h1>ORCHESTRA</h1>
-        <span class="subtitle">local multi-agent orchestrator</span>
-      </header>
-      <div class="messages" id="messages"></div>
-      <form class="composer" id="composer">
-        <input id="input" placeholder="Ask Orchestra..." autocomplete="off" />
-        <button type="submit" id="send">Send</button>
-      </form>
-    </main>
-  </div>
+<link rel="stylesheet" href="app.css" />
 
 <script>
-const nodesEl = document.getElementById('nodes');
-const svgEl = document.getElementById('svg');
-const messagesEl = document.getElementById('messages');
-const form = document.getElementById('composer');
-const input = document.getElementById('input');
-const sendBtn = document.getElementById('send');
-const sessionListEl = document.getElementById('session-list');
-const newChatBtn = document.getElementById('new-chat');
-
-/** Global UI state.
- *  currentSessionId: the session being displayed. `null` means "no session yet"
- *  — the next message will create one server-side and we bind to its id. */
-let roster = [];
-let currentSessionId = null;
-
-// ── Roster (unchanged) ────────────────────────────────────────────
-async function loadRoster() {
-  const res = await fetch('/api/roster');
-  roster = await res.json();
-  nodesEl.innerHTML = roster.map(s =>
-    `<div class="node" data-name="${s.name}"><span class="dot"></span><span class="label">${s.name}</span></div>`
-  ).join('');
-}
-
-function clearConstellation() {
-  svgEl.innerHTML = '';
-  nodesEl.querySelectorAll('.node').forEach(n => n.classList.remove('active'));
-}
-
-function litSequence(specialistNames) {
-  clearConstellation();
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const nodeEls = specialistNames
-    .map(name => nodesEl.querySelector(`.node[data-name="${CSS.escape(name)}"]`))
-    .filter(Boolean);
-  nodeEls.forEach((el, i) => {
-    setTimeout(() => {
-      el.classList.add('active');
-      if (i > 0) {
-        const a = nodeEls[i - 1].getBoundingClientRect();
-        const b = el.getBoundingClientRect();
-        const rootRect = svgEl.getBoundingClientRect();
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', a.left - rootRect.left + a.width / 2);
-        line.setAttribute('y1', a.top - rootRect.top + a.height / 2);
-        line.setAttribute('x2', b.left - rootRect.left + b.width / 2);
-        line.setAttribute('y2', b.top - rootRect.top + b.height / 2);
-        svgEl.appendChild(line);
-        requestAnimationFrame(() => line.classList.add('lit'));
-      }
-    }, reduced ? 0 : i * 350);
-  });
-}
-
-// ── Sessions sidebar ──────────────────────────────────────────────
-async function loadSessions() {
-  const res = await fetch('/api/sessions');
-  const sessions = await res.json();
-  if (!sessions.length) {
-    sessionListEl.innerHTML = `<div class="sessions-empty">No chats yet. Ask something to start one.</div>`;
-    return;
-  }
-  sessionListEl.innerHTML = sessions.map(s => `
-    <div class="session-item ${s.id === currentSessionId ? 'active' : ''}" data-id="${s.id}">
-      <span class="session-title">${escapeHtml(s.title)}</span>
-      <button class="session-del" data-id="${s.id}" title="Delete this chat">×</button>
-    </div>
-  `).join('');
-}
-
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
-sessionListEl.addEventListener('click', async (e) => {
-  const delBtn = e.target.closest('.session-del');
-  if (delBtn) {
-    e.stopPropagation();
-    const id = delBtn.dataset.id;
-    await fetch('/api/sessions/' + id, {method: 'DELETE'});
-    if (id === currentSessionId) startNewChat();
-    else loadSessions();
-    return;
-  }
-  const item = e.target.closest('.session-item');
-  if (item) openSession(item.dataset.id);
-});
-
-newChatBtn.addEventListener('click', startNewChat);
-
-function startNewChat() {
-  currentSessionId = null;
-  messagesEl.innerHTML = `<div class="msg system">Ask it anything — watch the roster light up as specialists get called.</div>`;
-  clearConstellation();
-  loadSessions();
-  input.focus();
-}
-
-async function openSession(id) {
-  currentSessionId = id;
-  clearConstellation();
-  messagesEl.innerHTML = '';
-  const res = await fetch('/api/sessions/' + id);
-  const msgs = await res.json();
-  for (const m of msgs) {
-    addMessage(m.role === 'user' ? 'user' : 'assistant', m.text);
-  }
-  loadSessions();
-}
-
-// ── Chat rendering ────────────────────────────────────────────────
-function addMessage(role, text) {
-  const div = document.createElement('div');
-  div.className = `msg ${role}`;
-  div.innerHTML = `<div class="bubble"></div>`;
-  div.querySelector('.bubble').textContent = text;
-  messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-  return div;
-}
-
-function addAudit(container, tasks, runId) {
-  const btn = document.createElement('button');
-  btn.className = 'audit-toggle';
-  btn.textContent = `▸ audit — run ${runId} (${tasks.length} task${tasks.length===1?'':'s'})`;
-  const panel = document.createElement('div');
-  panel.className = 'audit';
-  panel.innerHTML = tasks.map(t =>
-    `<div class="row"><span class="status-${t.status}">[${t.status}]</span><span>(${t.category}) ${t.specialist||'-'}: ${escapeHtml(t.description.slice(0,70))}</span></div>`
-  ).join('');
-  btn.onclick = () => {
-    panel.classList.toggle('open');
-    btn.textContent = (panel.classList.contains('open') ? '▾' : '▸') +
-      ` audit — run ${runId} (${tasks.length} task${tasks.length===1?'':'s'})`;
-  };
-  container.appendChild(btn);
-  container.appendChild(panel);
-}
-
-// ── Send ──────────────────────────────────────────────────────────
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const text = input.value.trim();
-  if (!text) return;
-  addMessage('user', text);
-  input.value = '';
-  input.disabled = true; sendBtn.disabled = true;
-
-  const thinking = document.createElement('div');
-  thinking.className = 'thinking';
-  thinking.innerHTML = '<span class="thinking-dot">●</span><span class="thinking-text">Starting…</span>';
-  const label = thinking.querySelector('.thinking-text');
-  messagesEl.appendChild(thinking);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-
-  try {
-    const res = await fetch('/api/chat/stream', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({message: text, session_id: currentSessionId}),
-    });
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    let finalData = null;
-
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, {stream: true});
-      const lines = buf.split('\n\n');
-      buf = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const item = JSON.parse(line.slice(6));
-        if (item.type === 'session') {
-          if (!currentSessionId) {
-            currentSessionId = item.id;
-            loadSessions();
-          }
-        } else if (item.type === 'progress') {
-          label.textContent = item.text;
-          messagesEl.scrollTop = messagesEl.scrollHeight;
-        } else if (item.type === 'done') {
-          finalData = item.data;
-        } else if (item.type === 'error') {
-          throw new Error(item.text);
-        }
-      }
-    }
-
-    thinking.remove();
-    if (finalData) {
-      const specialists = [...new Set(finalData.tasks.map(t => t.specialist).filter(Boolean))];
-      litSequence(specialists);
-      const container = addMessage('assistant', finalData.reply);
-      if (finalData.tasks.length) addAudit(container, finalData.tasks, finalData.run_id);
-      loadSessions(); // updated_at bump reorders the list
-    }
-  } catch (err) {
-    thinking.remove();
-    addMessage('system', `Error reaching Orchestra: ${err}`);
-  } finally {
-    input.disabled = false; sendBtn.disabled = false; input.focus();
-  }
-});
-
-// ── Boot ──────────────────────────────────────────────────────────
-loadRoster();
-loadSessions();
-startNewChat();
+  /* Applied before first paint so switching themes never flashes.
+     Explicit choice wins; otherwise follow the OS. */
+  (function () {
+    try {
+      var saved = localStorage.getItem('orchestra:theme');
+      var system = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.dataset.theme = saved || system;
+    } catch (e) { /* private mode — dark default already set on <html> */ }
+  })();
 </script>
+</head>
+
+<body>
+<div class="app">
+
+  <!-- ── Sessions ─────────────────────────────────────────────── -->
+  <aside class="sessions" aria-label="Chat history">
+    <div class="sessions-head">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M8 22 16 9l9 10" stroke="currentColor" stroke-width="1.8" fill="none" opacity=".5"/>
+          <circle cx="8" cy="22" r="3.2" fill="currentColor"/>
+          <circle cx="16" cy="9" r="3.2" fill="currentColor"/>
+          <circle cx="25" cy="19" r="3.2" fill="currentColor"/>
+        </svg>
+        <span class="brand-name">ORCHESTRA</span>
+      </div>
+      <button class="icon-btn" id="btn-search" title="Search chats and commands (Ctrl K)" aria-label="Search chats and commands">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+        </svg>
+      </button>
+    </div>
+
+    <button class="new-chat" id="btn-new" title="Start a new chat (N)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M12 5v14M5 12h14"/>
+      </svg>
+      New chat
+      <span class="kbd-hint">N</span>
+    </button>
+
+    <div class="session-list" id="session-list">
+      <div class="session-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+    </div>
+
+    <div class="sessions-foot">
+      <span class="eyebrow" id="session-count"></span>
+      <span class="spacer"></span>
+      <button class="icon-btn" id="btn-theme" title="Toggle light and dark (T)" aria-label="Toggle light and dark theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" data-icon="moon">
+          <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5Z"/>
+        </svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" data-icon="sun" hidden>
+          <circle cx="12" cy="12" r="4.2"/>
+          <path d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="btn-help" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <rect x="2.5" y="6" width="19" height="12" rx="2.5"/>
+          <path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"/>
+        </svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── Roster ───────────────────────────────────────────────── -->
+  <aside class="roster" aria-label="Specialist roster">
+    <div class="roster-head"><span class="eyebrow">Roster</span></div>
+    <svg class="constellation" id="constellation" aria-hidden="true"></svg>
+    <div class="nodes" id="nodes"></div>
+    <div class="roster-foot">
+      <div class="health" id="health" title="Backend status">
+        <span class="pip"></span><span class="txt">connecting…</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Chat ─────────────────────────────────────────────────── -->
+  <main class="chat">
+    <header class="chat-head">
+      <button class="icon-btn" id="btn-sidebar" title="Toggle sidebar (B)" aria-label="Toggle sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9.5 4v16"/>
+        </svg>
+      </button>
+      <h1>ORCHESTRA</h1>
+      <span class="sep" aria-hidden="true">/</span>
+      <span class="subtitle" id="chat-subtitle">local multi-agent orchestrator</span>
+      <span class="spacer"></span>
+      <div class="head-actions">
+        <button class="icon-btn" id="btn-regen-head" title="Regenerate last reply (R)" aria-label="Regenerate last reply">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="messages" id="messages" role="log" aria-live="polite" aria-relevant="additions text">
+      <div class="thread" id="thread"></div>
+    </div>
+
+    <button class="jump" id="jump" tabindex="-1" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+      Jump to latest
+    </button>
+
+    <div class="composer-wrap">
+      <form class="composer" id="composer">
+        <label class="visually-hidden" for="input">Message Orchestra</label>
+        <textarea id="input" rows="1" dir="auto" autocomplete="off" spellcheck="false"
+                  placeholder="Ask Orchestra…"></textarea>
+        <button class="send" id="send" type="submit" title="Send (Enter)" aria-label="Send message">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" data-icon="send">
+            <path d="M5 12h13M12 5l7 7-7 7"/>
+          </svg>
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" data-icon="stop" hidden>
+            <rect x="7" y="7" width="10" height="10" rx="2"/>
+          </svg>
+        </button>
+      </form>
+      <div class="composer-hint">
+        <span><kbd>Enter</kbd> send &nbsp;·&nbsp; <kbd>Shift</kbd><kbd>Enter</kbd> newline</span>
+        <span class="spacer"></span>
+        <span><kbd>Ctrl</kbd><kbd>K</kbd> commands</span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ── Command palette ────────────────────────────────────────── -->
+<div class="overlay" id="palette-overlay" hidden>
+  <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+    <input class="palette-input" id="palette-input" type="text" autocomplete="off"
+           placeholder="Search chats, or run a command…" aria-label="Search chats or commands" />
+    <div class="palette-list" id="palette-list" role="listbox"></div>
+  </div>
+</div>
+
+<!-- ── Shortcuts sheet ────────────────────────────────────────── -->
+<div class="overlay" id="help-overlay" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <h2 id="help-title">Keyboard shortcuts</h2>
+    <dl>
+      <dt>Command palette</dt><dd><kbd>Ctrl</kbd><kbd>K</kbd></dd>
+      <dt>New chat</dt><dd><kbd>N</kbd></dd>
+      <dt>Focus the composer</dt><dd><kbd>/</kbd></dd>
+      <dt>Send</dt><dd><kbd>Enter</kbd></dd>
+      <dt>Newline</dt><dd><kbd>Shift</kbd><kbd>Enter</kbd></dd>
+      <dt>Edit your last message</dt><dd><kbd>&uarr;</kbd></dd>
+      <dt>Regenerate last reply</dt><dd><kbd>R</kbd></dd>
+      <dt>Copy last reply</dt><dd><kbd>C</kbd></dd>
+      <dt>Toggle sidebar</dt><dd><kbd>B</kbd></dd>
+      <dt>Toggle theme</dt><dd><kbd>T</kbd></dd>
+      <dt>Previous / next chat</dt><dd><kbd>[</kbd><kbd>]</kbd></dd>
+      <dt>This sheet</dt><dd><kbd>?</kbd></dd>
+      <dt>Close / stop watching</dt><dd><kbd>Esc</kbd></dd>
+    </dl>
+    <p class="note">Single letters work whenever you are not typing in a field.
+      Rename a chat by double-clicking its title.</p>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="markdown.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
