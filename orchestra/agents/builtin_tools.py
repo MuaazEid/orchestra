@@ -8,10 +8,10 @@ across threads).
 from __future__ import annotations
 
 import re
-import sqlite3
 from datetime import datetime
 
 from ..core.config import settings
+from ..core.db import connect
 from .toolbox import tool
 
 _MEM_SCHEMA = """
@@ -23,10 +23,8 @@ CREATE TABLE IF NOT EXISTS facts (
 """
 
 
-def _mem() -> sqlite3.Connection:
-    c = sqlite3.connect(settings.memory_db, timeout=10)
-    c.executescript(_MEM_SCHEMA)
-    return c
+def _mem():
+    return connect(settings.memory_db, _MEM_SCHEMA)
 
 
 # ── Memory ─────────────────────────────────────────────────────────
