@@ -2,7 +2,6 @@
 because it's a distinct persistence surface. Each test uses a temporary
 data dir so runs don't pollute each other."""
 import os
-import tempfile
 os.environ["ORCHESTRA_LLM_BACKEND"] = "mock"
 
 import time

@@ -32,6 +32,9 @@ class Task(BaseModel):
     result: str = ""
     attempts: int = 0
     assigned_to: str = ""                 # specialist name (filled by supervisor)
+    # True when a retry cannot help (fatal-tool error, backend down). The
+    # executor stops retrying such a task instead of repeating the call.
+    fatal: bool = False
 
     @property
     def ready(self) -> bool:

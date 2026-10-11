@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from ..core.config import settings
+from ..core.db import connect
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,10 @@ CREATE INDEX IF NOT EXISTS idx_spans_run ON spans(run_id);
 """
 
 
-def _conn() -> sqlite3.Connection:
-    # Fresh connection per call: sidesteps SQLite threading issues
-    # (lesson #12 from the v1 error log).
-    c = sqlite3.connect(settings.metrics_db, timeout=10)
-    c.executescript(_SCHEMA)
-    return c
+def _conn():
+    # Fresh connection per call, closed on exit: sidesteps SQLite threading
+    # issues (lesson #12 from the v1 error log) without leaking handles.
+    return connect(settings.metrics_db, _SCHEMA)
 
 
 @dataclass

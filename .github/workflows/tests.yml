@@ -5,7 +5,30 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: the workflow only needs to read the repository.
+permissions:
+  contents: read
+
+# A newer push to the same PR cancels the older, now-pointless run.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # Correctness-only rules (syntax errors, undefined names, unused
+      # imports): cheap, no style churn. Pinned so a ruff release cannot
+      # turn a green main red.
+      - run: python -m pip install ruff==0.16.8
+      - run: ruff check --select E9,F .
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10

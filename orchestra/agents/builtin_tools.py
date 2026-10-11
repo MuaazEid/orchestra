@@ -8,10 +8,10 @@ across threads).
 from __future__ import annotations
 
 import re
-import sqlite3
 from datetime import datetime
 
 from ..core.config import settings
+from ..core.db import connect
 from .toolbox import tool
 
 _MEM_SCHEMA = """
@@ -23,10 +23,8 @@ CREATE TABLE IF NOT EXISTS facts (
 """
 
 
-def _mem() -> sqlite3.Connection:
-    c = sqlite3.connect(settings.memory_db, timeout=10)
-    c.executescript(_MEM_SCHEMA)
-    return c
+def _mem():
+    return connect(settings.memory_db, _MEM_SCHEMA)
 
 
 # ── Memory ─────────────────────────────────────────────────────────
@@ -55,7 +53,8 @@ def recall_about_user(query: str = "") -> str:
     if query:
         # Word-level matching: any query word hitting key or value counts.
         # ("favorite programming language" must match key "favorite_language")
-        words = [w for w in re.split(r"[^a-z0-9]+", query.lower()) if len(w) > 2]
+        # \w is Unicode-aware, so Arabic (and any other script) words count too.
+        words = re.findall(r"\w{3,}", query.lower())
         hits = [r for r in rows
                 if any(w in r[0].lower() or w in r[1].lower() for w in words)]
         # A miss on a SMALL store means our filter failed, not the data:

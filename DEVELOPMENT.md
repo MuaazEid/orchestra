@@ -97,3 +97,40 @@ git log --oneline -10
 ```
 
 That's the whole workflow. Everything else is noise.
+
+
+## Changing the code: branch, pull request, CI, merge
+
+Every change, however small, goes through this loop. `main` stays green.
+
+```powershell
+git switch main; git pull --ff-only
+git switch -c fix/short-description      # one branch per change
+# ...edit, then:
+python -m pytest -q                      # must pass locally first
+git add -A; git commit -m "fix(scope): what and why"
+git push -u origin fix/short-description
+gh pr create --fill                      # or open the PR on github.com
+```
+
+1. Wait for the **tests** and **lint** checks on the PR to go green.
+2. Merge (squash or merge commit), then delete the branch.
+3. `git switch main; git pull --ff-only`.
+
+Commit messages follow `type(scope): summary` (`fix`, `feat`, `docs`, `chore`,
+`test`, `refactor`); the body says *why*, not just what.
+
+### Protect `main` (once, after the first green CI run)
+
+GitHub: Settings → Branches → Add rule for `main` → require a pull request
+before merging → require status checks **test** and **lint** to pass.
+Do this only after one green run, otherwise the required checks do not exist yet.
+
+### Before trusting a change against the real model
+
+```powershell
+python -m orchestra doctor      # Ollama up? models installed?
+python smoke_test.py            # 8 real cases; exit code 0 only if all pass
+```
+The unit tests use a scripted mock model, so they prove the logic, not how
+qwen behaves — the smoke test is the check that does.

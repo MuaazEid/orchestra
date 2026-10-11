@@ -12,12 +12,12 @@ Design choices, consistent with the rest of Orchestra:
 """
 from __future__ import annotations
 
-import sqlite3
 import time
 import uuid
 from dataclasses import dataclass
 
 from ..core.config import settings
+from ..core.db import connect
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -44,12 +44,8 @@ def _db_path():
     return settings.data_dir / "conversations.db"
 
 
-def _conn() -> sqlite3.Connection:
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    c = sqlite3.connect(_db_path(), timeout=10)
-    c.execute("PRAGMA foreign_keys = ON")
-    c.executescript(_SCHEMA)
-    return c
+def _conn():
+    return connect(_db_path(), _SCHEMA)
 
 
 def _short_id() -> str:

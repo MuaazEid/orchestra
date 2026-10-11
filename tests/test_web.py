@@ -196,3 +196,31 @@ def test_ui_assets_are_served():
                          ("/markdown.js", "escapeHtml")):
         r = client.get(path)
         assert r.status_code == 200 and marker in r.text
+
+
+# ── UI contract: things that broke Arabic (RTL) messages before ─────
+def _css() -> str:
+    return client.get("/app.css").text
+
+
+def test_code_stays_left_to_right_inside_rtl_messages():
+    css = _css()
+    rule = css[css.index(".md-inline-code, .code-block pre"):].split("}")[0]
+    assert "direction: ltr" in rule and "unicode-bidi: isolate" in rule
+
+
+def test_long_unbreakable_tokens_cannot_widen_the_message_column():
+    css = _css()
+    assert ".msg { display: flex; flex-direction: column; max-width: 100%; min-width: 0; }" in css
+    assert css.count("overflow-wrap: anywhere") >= 2
+
+
+def test_quote_indent_uses_logical_properties_so_it_flips_in_rtl():
+    css = _css()
+    quote = css[css.index(".md-quote {"):].split("}")[0]
+    assert "padding-inline-start" in quote and "padding: 2px 0 2px 14px" not in quote
+
+
+def test_health_line_distinguishes_server_up_from_ollama_ready():
+    js = client.get("/app.js").text
+    assert "h.ready" in js and "Ollama is not running" in js

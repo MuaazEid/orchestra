@@ -104,10 +104,24 @@ def execute_all(tasks: list[Task], registry: SpecialistRegistry,
                 return result
             logger.warning("EXECUTOR | task %s attempt %d failed: %s",
                            task.id, attempt + 1, result.result)
-            emit(f"{spec.name} hit a snag, retrying\u2026")
+            if result.fatal:  # a retry cannot change the outcome
+                break
+            if attempt < settings.max_retries:
+                emit(f"{spec.name} hit a snag, retrying\u2026")
             current = result.model_copy(update={"status": TaskStatus.PENDING})
         emit(f"{spec.name} could not complete this")
         return result  # FAILED after retries
+
+    def _run_guarded(task: Task) -> Task:
+        """A bug or crash in one task must not take the whole run down:
+        convert it into a FAILED task the aggregator can report."""
+        try:
+            return _run_one(task)
+        except Exception as exc:  # noqa: BLE001 - boundary by design
+            logger.exception("EXECUTOR | task %s crashed", task.id)
+            return task.model_copy(update={
+                "status": TaskStatus.FAILED, "fatal": True,
+                "result": f"internal error: {exc!r}"})
 
     with tel.span("executor", n_tasks=len(tasks)) as detail:
         pool = ThreadPoolExecutor(max_workers=settings.max_concurrency)
@@ -139,7 +153,7 @@ def execute_all(tasks: list[Task], registry: SpecialistRegistry,
                         "result": "blocked: a prerequisite task failed"})
                 if not runnable:
                     continue
-                futures = {pool.submit(_run_one, t): t.id for t in runnable}
+                futures = {pool.submit(_run_guarded, t): t.id for t in runnable}
                 for fut in as_completed(futures):
                     finished[futures[fut]] = fut.result()
         finally:
