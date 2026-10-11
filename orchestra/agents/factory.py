@@ -35,6 +35,10 @@ class SpecialistRegistry:
                     spec.name, spec.categories, spec.tool_names)
         return self
 
+    def specs(self) -> list[SpecialistSpec]:
+        """All registered specialists, in hiring order (read-only copy)."""
+        return list(self._specs.values())
+
     def find_for(self, category: str) -> SpecialistSpec | None:
         for spec in self._specs.values():
             if category in spec.categories:

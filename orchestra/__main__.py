@@ -24,30 +24,29 @@ def _setup_logging() -> None:
 
 def cmd_doctor() -> int:
     """Pre-flight check on the TARGET machine. Fails loudly with fixes."""
-    import urllib.request, json as _json
+    from .llm.health import model_installed, ollama_status, required_models
     print(f"backend        : {settings.llm_backend}")
     print(f"data dir       : {settings.data_dir}")
     if settings.llm_backend == "mock":
         print("mock backend — nothing else to check. OK")
         return 0
-    url = settings.ollama_base_url
-    try:
-        with urllib.request.urlopen(f"{url}/api/tags", timeout=5) as r:
-            models = {m["name"] for m in _json.load(r).get("models", [])}
-    except Exception as exc:
-        print(f"✗ Ollama unreachable at {url} ({exc})")
-        print("  fix: run `ollama serve` (or check ORCHESTRA_OLLAMA_BASE_URL)")
+    status = ollama_status(timeout=5)
+    if not status["reachable"]:
+        print(f"✗ {status['error']}")
         return 1
-    print(f"✓ Ollama up at {url} — {len(models)} model(s) installed")
+    installed = set(status["installed"])
+    print(f"✓ Ollama up at {settings.ollama_base_url} — {len(installed)} model(s) installed")
     rc = 0
     for label, name in (("main", settings.main_model),
                         ("fast", settings.fast_model)):
-        if any(m == name or m.startswith(name + ":") for m in models) or name in models:
+        if model_installed(name, installed):
             print(f"✓ {label} model  : {name}")
         else:
             print(f"✗ {label} model  : {name} NOT installed")
             print(f"  fix: ollama pull {name}")
             rc = 1
+    print(f"  context window : {settings.num_ctx} tokens (ORCHESTRA_NUM_CTX), "
+          f"keep-alive {settings.keep_alive}")
     try:
         import langchain_ollama  # noqa: F401
         print("✓ langchain-ollama installed")
