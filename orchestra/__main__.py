@@ -24,7 +24,7 @@ def _setup_logging() -> None:
 
 def cmd_doctor() -> int:
     """Pre-flight check on the TARGET machine. Fails loudly with fixes."""
-    from .llm.health import model_installed, ollama_status, required_models
+    from .llm.health import model_installed, ollama_status
     print(f"backend        : {settings.llm_backend}")
     print(f"data dir       : {settings.data_dir}")
     if settings.llm_backend == "mock":

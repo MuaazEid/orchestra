@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from typing import Any, Callable
+from typing import Any
 
 from ..core.config import settings
 from .adapter import (LLMClient, LLMReply, LLMUnavailable, ToolCall,

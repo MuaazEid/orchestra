@@ -6,7 +6,7 @@ os.environ["ORCHESTRA_DATA_DIR"] = "/tmp/orchestra-test"
 
 import pytest
 
-from orchestra.agents import builtin_tools  # registers tools
+from orchestra.agents import builtin_tools  # noqa: F401  (import registers the tools)
 from orchestra.agents.toolbox import get_tools, run_tool, registry_names, tool
 from orchestra.agents.factory import (SpecialistRegistry, default_registry,
                                       run_specialist)

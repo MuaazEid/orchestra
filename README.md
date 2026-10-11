@@ -93,7 +93,12 @@ aggregator       7   100%   5.31    8.03
 - **Sandboxed side effects** — file tools are confined to a workspace with cross-platform path-traversal protection (the `..\` Windows case is unit-tested).
 - **Observability first** — every span (planner, specialist, tool call) is timed and logged to SQLite; `orchestra stats` reports real success rates and latencies.
 
-**103 unit tests**, all runnable without Ollama via a scripted `MockLLM` — the whole graph, including the web transport layer, is testable on any machine.
+- **Fails fast and says why** — Ollama not running or a model not installed raises one actionable error (`ollama serve` / `ollama pull <model>`) instead of a retry storm; a real request timeout is enforced; permanent failures are never retried.
+- **Planner guardrails** — deterministic checks around the planner's output: plain questions skip the planner entirely, tool tasks the message gives no evidence for are demoted, plans are deduplicated, capped and cycle-free.
+- **Network-safe web tool** — `fetch_webpage` refuses loopback, private and link-local addresses (including via redirects), because the URL comes from a model and the page can carry prompt injection.
+- **Operable web server** — honest `/api/health` (Ollama reachable? models installed? warm?), background model warm-up, SSE keep-alives, bounded concurrent runs, replies saved server-side.
+
+**199 unit tests**, all runnable without Ollama via a scripted `MockLLM` — the whole graph, including the web transport layer, is testable on any machine. CI runs them on Python 3.11 and 3.13, plus a lint pass.
 
 ## Specialists at a glance
 
@@ -124,6 +129,25 @@ python -m orchestra chat          # interactive CLI (/audit shows the task trail
 python -m orchestra serve         # browser UI at http://localhost:8765
 python smoke_test.py              # 6-case benchmark with timings
 ```
+
+## Configuration
+
+Everything is an environment variable with the `ORCHESTRA_` prefix (or a line in `.env`). The ones worth knowing:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `ORCHESTRA_MAIN_MODEL` / `ORCHESTRA_FAST_MODEL` | `qwen2.5:7b` | Ollama models for planning/work and for quick tasks |
+| `ORCHESTRA_NUM_CTX` | `8192` | Context window requested from Ollama. Ollama's own default is 4096 and it truncates silently beyond that |
+| `ORCHESTRA_KEEP_ALIVE` | `30m` | How long Ollama keeps a model loaded between requests |
+| `ORCHESTRA_REQUEST_TIMEOUT_S` | `120` | Per-request timeout to Ollama |
+| `ORCHESTRA_WARM_ON_START` | `true` | Load the models in the background when the web server starts |
+| `ORCHESTRA_MAX_CONCURRENT_RUNS` | `2` | Pipelines the web server runs at once; extra requests wait |
+| `ORCHESTRA_MAX_MESSAGE_CHARS` | `8000` | Longest accepted chat message |
+| `ORCHESTRA_PLANNER_FAST_PATH` | `true` | Skip the planner for messages that show no sign of needing a specialist |
+| `ORCHESTRA_ALLOW_PRIVATE_FETCH` | `false` | Let `fetch_webpage` reach private/loopback addresses (off for safety) |
+| `ORCHESTRA_TAVILY_API_KEY` | – | Optional web-search key; keep it in `.env`, never in code |
+
+`python -m orchestra doctor` checks Ollama, the models and these settings before first run.
 
 ## Web UI
 
@@ -158,16 +182,18 @@ that fails the build if an external URL ever creeps back in.
 | Path | Role |
 |---|---|
 | `orchestra/core/` | config (env-driven, validated at boot) · typed contracts |
-| `orchestra/llm/` | backend-agnostic adapter · Ollama client · MockLLM |
+| `orchestra/llm/` | backend-agnostic adapter · Ollama client · MockLLM · readiness + warm-up |
 | `orchestra/agents/` | tool registry · specialist factory · shared ReAct engine |
-| `orchestra/engine/` | planner · dependency executor · aggregator · pipeline |
+| `orchestra/engine/` | planner · planner guardrails · dependency executor · aggregator · pipeline |
 | `orchestra/observability/` | SQLite telemetry + stats reports |
 | `orchestra/web/` | FastAPI transport + a dependency-free browser client |
-| `tests/` | 103 tests covering routing, loops, sandboxing, context rules, history, HTTP, language pinning |
+| `tests/` | 199 tests covering routing, loops, sandboxing, planner guardrails, failure paths, SSRF, history, HTTP, language pinning |
 
 ## Honest limits
 
 A 7B local model will not match frontier models on open-ended reasoning or fine prose. The qwen family also drifts into Chinese under pressure; Orchestra pins the reply language per-request and retries once if CJK characters leak, falling back to a labeled join rather than returning the wrong language. This architecture compensates on **structured** work — routing, tool use, memory, file operations — where measured task success is 100% across the benchmark suite. Concurrency overlaps I/O; Ollama largely serializes inference on a single GPU. Complex chains take minutes, not seconds. All of this is by design for the zero-cost constraint.
+
+Two more limits to know about. The planner fast path and demotion rules rely on English and Arabic keyword signals: a message in another language with no digits or URLs is answered by the general assistant and will not trigger a specialist (set `ORCHESTRA_PLANNER_FAST_PATH=false` and the demotion still applies only to the categories it knows). And `fetch_webpage` resolves a hostname once for its safety check and again when it connects, so a hostile DNS server could still rebind between the two; closing that fully means connecting to the validated IP.
 
 ## Author
 

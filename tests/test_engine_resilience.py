@@ -5,9 +5,8 @@ import os
 os.environ["ORCHESTRA_LLM_BACKEND"] = "mock"
 os.environ["ORCHESTRA_DATA_DIR"] = "/tmp/orchestra-test"
 
-import pytest
 
-from orchestra.agents.factory import SpecialistRegistry, default_registry, run_specialist
+from orchestra.agents.factory import SpecialistRegistry, run_specialist
 from orchestra.agents.toolbox import tool
 from orchestra.core.config import settings
 from orchestra.core.contracts import SpecialistSpec, Task, TaskStatus

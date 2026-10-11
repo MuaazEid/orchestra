@@ -10,7 +10,7 @@ import pytest
 
 from orchestra.agents.factory import default_registry
 from orchestra.core.config import settings
-from orchestra.engine.guardrails import (MAX_PLAN_TASKS, PlanItem, break_cycles,
+from orchestra.engine.guardrails import (MAX_PLAN_TASKS, break_cycles,
                                          needs_planner, sanitize_plan, signals)
 from orchestra.engine.planner import plan
 from orchestra.llm.backends import MockLLM
