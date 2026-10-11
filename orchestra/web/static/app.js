@@ -102,11 +102,23 @@ function toggleSidebar() {
 /* ── Health ──────────────────────────────────────────────────────── */
 function loadHealth() {
   fetch('/api/health').then(function (r) { return r.json(); }).then(function (h) {
-    el.health.classList.add('up');
-    el.health.querySelector('.txt').textContent = h.backend + ' · ' + h.main_model;
-    el.health.title = h.specialists + ' specialists · concurrency ' + h.concurrency +
-      ' · fast tier ' + h.fast_model;
+    // `ok` only means the web server answered; `ready` means Ollama is
+    // reachable AND the configured models are installed.
+    var ready = h.ready !== false;
+    var llm = h.llm || {};
+    el.health.classList.toggle('up', ready);
+    el.health.classList.toggle('down', !ready);
+    el.health.querySelector('.txt').textContent = ready
+      ? h.backend + ' \u00b7 ' + h.main_model
+      : (llm.reachable === false ? 'Ollama is not running'
+         : 'model missing: ' + (llm.missing || []).join(', '));
+    el.health.title = ready
+      ? h.specialists + ' specialists \u00b7 concurrency ' + h.concurrency +
+        ' \u00b7 fast tier ' + h.fast_model +
+        (h.warm && h.warm.state !== 'idle' ? ' \u00b7 warm-up: ' + h.warm.state : '')
+      : (llm.error || 'A configured model is not installed. Run: ollama pull <model>');
   }).catch(function () {
+    el.health.classList.remove('up');
     el.health.classList.add('down');
     el.health.querySelector('.txt').textContent = 'backend unreachable';
   });
@@ -554,7 +566,11 @@ function send(payload) {
   }).then(function (res) {
     if (!res.ok) {
       return res.json().catch(function () { return {}; }).then(function (err) {
-        throw new Error(err.detail || ('server returned ' + res.status));
+        // FastAPI sends `detail` as a string for HTTP errors but as a list
+        // for validation errors (422, e.g. an over-long message).
+        var detail = typeof err.detail === 'string' ? err.detail
+          : (res.status === 422 ? 'that message is too long or invalid' : '');
+        throw new Error(detail || ('server returned ' + res.status));
       });
     }
     var reader = res.body.getReader();
@@ -770,6 +786,7 @@ $('btn-regen-head').addEventListener('click', regenerate);
 /* ── Boot ────────────────────────────────────────────────────────── */
 applyTheme(document.documentElement.dataset.theme);
 loadHealth();
+setInterval(loadHealth, 15000);   // notice Ollama stopping or starting without a page reload
 loadRoster();
 loadSessions();
 newChat();

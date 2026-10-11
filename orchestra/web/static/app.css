@@ -312,18 +312,21 @@ body.sidebars-hidden .roster { opacity: 0; pointer-events: none; }
   flex: 1; overflow-y: auto; scroll-behavior: smooth;
   padding: 26px 22px 12px;
 }
-.thread { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+.thread { max-width: 720px; min-width: 0; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
 
 /* Messages */
-.msg { display: flex; flex-direction: column; max-width: 100%; }
+/* min-width: 0 lets a flex child shrink below its content's width, so one
+   long unbreakable token (a URL, a tatweel run) cannot push the column wider
+   than the viewport. */
+.msg { display: flex; flex-direction: column; max-width: 100%; min-width: 0; }
 .msg.user { align-items: flex-end; }
 .msg.user .bubble {
   max-width: 85%;
   padding: 9px 13px; border-radius: var(--r-lg) var(--r-lg) 4px var(--r-lg);
   background: var(--surface-2); border: 1px solid var(--line);
-  line-height: 1.55; white-space: pre-wrap; word-wrap: break-word;
+  line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.msg.assistant .bubble { line-height: 1.65; font-size: 14.5px; word-wrap: break-word; }
+.msg.assistant .bubble { line-height: 1.65; font-size: 14.5px; min-width: 0; overflow-wrap: anywhere; }
 .msg.system {
   align-items: center; font-family: var(--mono); font-size: 12px;
   color: var(--muted); text-align: center;
@@ -482,11 +485,17 @@ body.sidebars-hidden .roster { opacity: 0; pointer-events: none; }
 .md-task.done { color: var(--cyan); }
 .md-hr { margin: 18px 0; border: none; border-top: 1px solid var(--line); }
 .md-quote {
-  margin: 0 0 12px; padding: 2px 0 2px 14px;
+  margin: 0 0 12px; padding: 2px 0; padding-inline-start: 14px;
   border-inline-start: 2px solid var(--accent); color: var(--muted);
 }
 .bubble a { color: var(--accent); text-underline-offset: 2px; }
 .bubble a:hover { text-decoration-thickness: 2px; }
+
+/* Code is always left-to-right, even inside an Arabic message: without this
+   the bidi algorithm reorders punctuation (print('x') renders as 'x')tnirp). */
+.md-inline-code, .code-block pre {
+  direction: ltr; unicode-bidi: isolate; text-align: left;
+}
 
 .md-inline-code {
   padding: 1.5px 5px; border-radius: 4px;
