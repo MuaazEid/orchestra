@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from ..core.contracts import SpecialistSpec, Task, TaskStatus
-from ..llm.adapter import LLMClient, LLMError
+from ..llm.adapter import LLMClient, LLMError, LLMUnavailable
 from ..observability.telemetry import Telemetry
 from .toolbox import get_tools, run_tool
 
@@ -120,6 +120,7 @@ def run_specialist(
                         return task.model_copy(update={
                             "status": TaskStatus.FAILED,
                             "result": output,
+                            "fatal": True,
                         })
                     # Terminal tool ran cleanly -> task is DONE now. This
                     # breaks the "call, re-call, re-call" loop that small
@@ -134,6 +135,15 @@ def run_specialist(
                 "status": TaskStatus.FAILED,
                 "result": f"step limit ({spec.max_steps}) reached",
             })
+    except LLMUnavailable as exc:
+        # Backend down / model missing: say so verbatim and tell the
+        # executor not to retry — the same call cannot succeed.
+        logger.error("SPECIALIST %s | backend unavailable: %s", spec.name, exc)
+        return task.model_copy(update={
+            "status": TaskStatus.FAILED,
+            "result": str(exc),
+            "fatal": True,
+        })
     except LLMError as exc:
         logger.error("SPECIALIST %s | LLM gave up: %s", spec.name, exc)
         return task.model_copy(update={

@@ -16,7 +16,7 @@ import logging
 
 from ..agents.factory import SpecialistRegistry
 from ..core.contracts import Task
-from ..llm.adapter import LLMClient, LLMError
+from ..llm.adapter import LLMClient, LLMError, LLMUnavailable
 from ..observability.telemetry import Telemetry
 
 logger = logging.getLogger(__name__)
@@ -89,6 +89,8 @@ def plan(user_message: str, registry: SpecialistRegistry,
                 schema_hint='{"tasks": [{"description": str, "category": str, "needs": [int]}]}',
             )
             raw = out.get("tasks") or []
+        except LLMUnavailable:
+            raise  # backend down: degrading to a "general" task cannot help
         except LLMError as exc:
             logger.warning("PLANNER | degraded to single task: %s", exc)
             raw = []
