@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     main_model: str = "qwen2.5:7b"
     fast_model: str = "qwen2.5:7b"   # set to qwen2.5:3b after pulling it
     planner_temperature: float = 0.0
+    # Skip the planner LLM call when the message shows no sign of needing
+    # any specialist (see engine/guardrails.py). Turn off if you add
+    # specialists for languages the keyword signals do not cover.
+    planner_fast_path: bool = True
     specialist_temperature: float = 0.2
     request_timeout_s: float = 120.0
     # Context window requested from Ollama on every call. Ollama's own

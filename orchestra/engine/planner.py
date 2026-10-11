@@ -15,9 +15,11 @@ from __future__ import annotations
 import logging
 
 from ..agents.factory import SpecialistRegistry
+from ..core.config import settings
 from ..core.contracts import Task
 from ..llm.adapter import LLMClient, LLMError, LLMUnavailable
 from ..observability.telemetry import Telemetry
+from .guardrails import PlanItem, break_cycles, needs_planner, sanitize_plan
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +80,14 @@ def _correct_category(description: str, cat: str, cats: list[str]) -> str:
 def plan(user_message: str, registry: SpecialistRegistry,
          llm: LLMClient, tel: Telemetry) -> list[Task]:
     cats = registry.all_categories
+
+    # Fast path: no sign of any specialist in the message -> skip the
+    # planner call. Nothing to route, nothing to hallucinate.
+    if settings.planner_fast_path and not needs_planner(user_message):
+        with tel.span("planner", input=user_message[:80]) as detail:
+            detail["fast_path"] = True
+        return [Task(description=user_message, category="general")]
+
     system = _PLANNER_PROMPT.format(catalog=registry.catalog(),
                                     category_hints=registry.hints(),
                                     categories=", ".join(cats))
@@ -95,29 +105,36 @@ def plan(user_message: str, registry: SpecialistRegistry,
             logger.warning("PLANNER | degraded to single task: %s", exc)
             raw = []
 
-        if not raw:
+        if not isinstance(raw, list) or not raw:
             detail["degraded"] = True
             return [Task(description=user_message, category="general")]
 
-        tasks: list[Task] = []
-        for item in raw:
+        items: list[PlanItem] = []
+        for ref, item in enumerate(raw):
             if not isinstance(item, dict) or not item.get("description"):
-                continue
+                continue  # `ref` still counts it, so `needs` indexes stay aligned
             cat = item.get("category", "general")
             cat = cat if cat in cats else "general"
-            cat = _correct_category(str(item["description"]), cat, cats)
-            tasks.append(Task(
-                description=str(item["description"]),
-                category=cat,
-            ))
-        # resolve integer "needs" -> task ids (after all ids exist)
-        for i, item in enumerate(raw):
-            if i >= len(tasks) or not isinstance(item, dict):
-                continue
+            desc = str(item["description"])
             needs = item.get("needs") or []
-            tasks[i].depends_on = [
-                tasks[j].id for j in needs
-                if isinstance(j, int) and 0 <= j < len(tasks) and j != i
-            ]
+            items.append(PlanItem(
+                ref=ref, description=desc,
+                category=_correct_category(desc, cat, cats),
+                needs=[n for n in needs if isinstance(n, int) and n != ref]
+                if isinstance(needs, list) else []))
+
+        before = len(items)
+        items = sanitize_plan(items, user_message)
+        detail["sanitized"] = before != len(items) or any(
+            it.description == user_message for it in items)
+
+        tasks = [Task(description=it.description, category=it.category)
+                 for it in items]
+        id_of = {it.ref: t.id for it, t in zip(items, tasks)}
+        deps = {t.id: [id_of[n] for n in it.needs if n in id_of]
+                for it, t in zip(items, tasks)}
+        deps = break_cycles(deps, [t.id for t in tasks])
+        for t in tasks:
+            t.depends_on = deps[t.id]
         detail["n_tasks"] = len(tasks)
-        return tasks or [Task(description=user_message, category="general")]
+        return tasks

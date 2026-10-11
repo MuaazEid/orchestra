@@ -120,7 +120,7 @@ def test_a_crash_inside_one_task_does_not_kill_the_run(monkeypatch):
 # ── Pipeline ───────────────────────────────────────────────────────
 def test_pipeline_reports_backend_down_instead_of_raising(monkeypatch):
     monkeypatch.setattr(pipeline, "get_llm", lambda tier: _AlwaysDown())
-    report = Orchestra().handle("hello")
+    report = Orchestra().handle("Multiply 6 by 7")   # has signal -> planner runs
     assert not report.ok and report.error
     assert "ollama" in report.reply.lower() and report.reply.startswith("⚠")
     assert report.tasks == []
