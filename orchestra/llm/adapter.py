@@ -46,6 +46,12 @@ class LLMError(RuntimeError):
     """Raised after retries are exhausted — callers decide how to degrade."""
 
 
+class LLMUnavailable(LLMError):
+    """The backend cannot serve requests and retrying will not change that
+    (Ollama not running, model not installed). Raised immediately, carrying
+    a message that tells the user how to fix it."""
+
+
 # ── The interface every backend must honor ─────────────────────────
 class LLMClient(ABC):
     @abstractmethod
@@ -105,12 +111,22 @@ def _extract_json(text: str) -> dict | None:
 
 # ── Retry wrapper (shared by real backends) ────────────────────────
 def with_retries(fn: Callable[[], LLMReply], *, max_retries: int,
-                 backoff_s: float, label: str) -> LLMReply:
+                 backoff_s: float, label: str,
+                 classify: Callable[[Exception], LLMUnavailable | None] | None = None,
+                 ) -> LLMReply:
+    """Call `fn`, retrying transient failures with exponential backoff.
+
+    `classify` lets a backend mark an error as permanent: if it returns an
+    LLMUnavailable, that is raised at once — no backoff, no further tries.
+    """
     last_exc: Exception | None = None
     for attempt in range(max_retries + 1):
         try:
             return fn()
         except Exception as exc:  # network / timeout / backend errors
+            fatal = classify(exc) if classify else None
+            if fatal is not None:
+                raise fatal from exc
             last_exc = exc
             if attempt < max_retries:
                 sleep = backoff_s * (2 ** attempt)

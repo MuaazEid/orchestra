@@ -14,12 +14,34 @@ from collections import deque
 from typing import Any, Callable
 
 from ..core.config import settings
-from .adapter import LLMClient, LLMReply, ToolCall, with_retries
+from .adapter import (LLMClient, LLMReply, LLMUnavailable, ToolCall,
+                      with_retries)
 
 logger = logging.getLogger(__name__)
 
 
 # ── Real backend (lazy import: langchain_ollama only needed at runtime) ──
+def classify_ollama_error(exc: Exception, model: str,
+                          base_url: str) -> LLMUnavailable | None:
+    """Map a raw Ollama/httpx exception to a permanent, actionable error.
+
+    Returns None for anything transient (timeouts, 5xx) so it is retried.
+    Matches on type names so this module imports neither httpx nor ollama
+    at load time.
+    """
+    names = {c.__name__ for c in type(exc).__mro__}
+    if names & {"ConnectError", "ConnectTimeout", "ConnectionError",
+                "ConnectionRefusedError"}:
+        return LLMUnavailable(
+            f"Ollama is not reachable at {base_url}. Start it with "
+            "`ollama serve`, or fix ORCHESTRA_OLLAMA_BASE_URL.")
+    if "ResponseError" in names and getattr(exc, "status_code", None) == 404:
+        return LLMUnavailable(
+            f"Model '{model}' is not installed in Ollama. "
+            f"Run: ollama pull {model}")
+    return None
+
+
 class OllamaClient(LLMClient):
     def __init__(self, model: str):
         self.model = model
@@ -29,12 +51,17 @@ class OllamaClient(LLMClient):
         from langchain_ollama import ChatOllama  # imported here on purpose
 
         def _call() -> LLMReply:
+            # NOTE: ChatOllama has no `timeout` field (extra kwargs are
+            # silently ignored), so the timeout MUST go through
+            # client_kwargs or a stuck request would hang forever.
             llm = ChatOllama(
                 model=self.model,
                 base_url=settings.ollama_base_url,
                 temperature=temperature,
                 format="json" if json_mode else None,
-                timeout=settings.request_timeout_s,
+                num_ctx=settings.num_ctx,
+                keep_alive=settings.keep_alive,
+                client_kwargs={"timeout": settings.request_timeout_s},
             )
             if tools:
                 llm = llm.bind_tools(tools)
@@ -50,7 +77,9 @@ class OllamaClient(LLMClient):
 
         return with_retries(_call, max_retries=settings.max_retries,
                             backoff_s=settings.retry_backoff_s,
-                            label=f"ollama:{self.model}")
+                            label=f"ollama:{self.model}",
+                            classify=lambda e: classify_ollama_error(
+                                e, self.model, settings.ollama_base_url))
 
 
 def _to_langchain(messages: list[dict[str, str]]):

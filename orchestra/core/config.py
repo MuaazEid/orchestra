@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     planner_temperature: float = 0.0
     specialist_temperature: float = 0.2
     request_timeout_s: float = 120.0
+    # Context window requested from Ollama on every call. Ollama's own
+    # default is 4096 tokens and it truncates silently beyond that, so we
+    # ask for an explicit window instead of trusting the default.
+    num_ctx: int = Field(8192, ge=1024)
+    # How long Ollama keeps a model in memory after its last request.
+    keep_alive: str = "30m"
+    # Load the models in the background when the web server starts, so the
+    # first request does not pay the model-load cost.
+    warm_on_start: bool = True
 
     # ── Execution limits (machine-aware) ───────────────────────────
     # Ollama serializes GPU/CPU inference anyway; 2 concurrent requests
@@ -44,6 +53,14 @@ class Settings(BaseSettings):
     max_specialist_steps: int = Field(6, ge=1, le=20)
     max_retries: int = Field(2, ge=0, le=5)
     retry_backoff_s: float = 1.5
+    # Pipelines the web server runs at once; extra requests wait their turn.
+    max_concurrent_runs: int = Field(2, ge=1, le=8)
+    # Upper bound on one chat message (characters). Keeps a pasted novel
+    # from blowing up a small model's context.
+    max_message_chars: int = Field(8000, ge=100)
+    # fetch_webpage refuses loopback / private / link-local addresses unless
+    # this is set (it protects services on your own machine and network).
+    allow_private_fetch: bool = False
 
     # ── Persistence ────────────────────────────────────────────────
     data_dir: Path = Path.home() / ".orchestra"
