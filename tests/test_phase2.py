@@ -120,6 +120,24 @@ def test_specialist_hits_step_limit_marks_failed():
     assert "step limit" in done.result
 
 
+def test_specialist_retries_empty_reply_then_succeeds():
+    llm = MockLLM().queue(LLMReply(text=""), LLMReply(text="The answer is 42."))
+    done = run_specialist(_math_spec(), Task(description="6 times 7", category="math"),
+                          llm, Telemetry.new_run())
+    assert done.status == TaskStatus.DONE
+    assert done.result == "The answer is 42."
+    assert len(llm.calls) == 2
+    assert "empty" in llm.calls[1]["messages"][-1]["content"].lower()
+
+
+def test_specialist_persistent_empty_reply_fails_honestly():
+    llm = MockLLM().queue(*[LLMReply(text="")] * 6)
+    done = run_specialist(_math_spec(), Task(description="x", category="math"),
+                          llm, Telemetry.new_run())
+    assert done.status == TaskStatus.FAILED
+    assert "empty reply" in done.result and "(empty reply)" not in done.result
+
+
 # ── Terminal tools: break the small-model save-loop (Phase 5) ──────
 def test_terminal_tool_completes_task_without_extra_llm_turn():
     from orchestra.agents import builtin_tools  # noqa
@@ -254,6 +272,7 @@ def test_bad_args_error_includes_correct_signature():
     out = run_tool("read_file", {"filename": "x.txt"})   # invented arg name
     assert out.startswith("Error: bad arguments")
     assert "read_file(path:" in out and "Required signature" in out                 # self-correction aid
+
 
 
 
