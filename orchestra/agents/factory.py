@@ -91,14 +91,28 @@ def run_specialist(
 
     try:
         with tel.span("specialist", role=spec.name, task=task.description[:80]):
+            empty_reply = False
             for _ in range(spec.max_steps):
                 reply = llm.chat(messages, tools=tools or None,
                                  temperature=0.2)
                 if not reply.wants_tools:
-                    return task.model_copy(update={
-                        "status": TaskStatus.DONE,
-                        "result": reply.text.strip() or "(empty reply)",
-                    })
+                    text = (reply.text or "").strip()
+                    if text:
+                        return task.model_copy(update={
+                            "status": TaskStatus.DONE,
+                            "result": text,
+                        })
+                    # An empty completion is a failure, not an answer. Nudge
+                    # the model once; local models sometimes emit nothing
+                    # after a long prompt or an unlucky sampling step.
+                    logger.warning("SPECIALIST %s | empty reply, retrying", spec.name)
+                    empty_reply = True
+                    messages.append({"role": "assistant", "content": ""})
+                    messages.append({"role": "user", "content":
+                        "Your previous reply was empty. Return the final "
+                        "answer text now. Do not call a tool and do not "
+                        "leave the reply blank."})
+                    continue
                 # transcribe the assistant turn, then execute each call
                 messages.append({"role": "assistant",
                                  "content": reply.text or "[tool calls]"})
@@ -130,9 +144,10 @@ def run_specialist(
                             "status": TaskStatus.DONE,
                             "result": output,
                         })
+            reason = "empty reply" if empty_reply else "step limit"
             return task.model_copy(update={
                 "status": TaskStatus.FAILED,
-                "result": f"step limit ({spec.max_steps}) reached",
+                "result": f"{reason} ({spec.max_steps} steps)",
             })
     except LLMError as exc:
         logger.error("SPECIALIST %s | LLM gave up: %s", spec.name, exc)
