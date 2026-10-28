@@ -103,6 +103,34 @@ def _extract_json(text: str) -> dict | None:
     return None
 
 
+def recover_tool_calls(text: str, allowed: set[str]) -> tuple[ToolCall, ...]:
+    """Recover tool calls a small model printed as JSON instead of using the
+    native tool_calls field.
+
+    Only names in `allowed` are accepted: a hallucinated tool must reach the
+    normal "unknown tool" path, not be silently executed here.
+    """
+    obj = _extract_json(text)
+    if obj is None:
+        return ()
+
+    raw_calls: list[dict[str, Any]] = []
+    nested = obj.get("tool_calls")
+    if isinstance(nested, list):
+        raw_calls = [c for c in nested if isinstance(c, dict)]
+    else:
+        raw_calls = [obj]
+
+    calls: list[ToolCall] = []
+    for raw in raw_calls:
+        name = raw.get("name") or raw.get("tool") or raw.get("tool_name")
+        args = raw.get("arguments", raw.get("args", raw.get("parameters", {})))
+        if not isinstance(name, str) or name not in allowed or not isinstance(args, dict):
+            continue
+        calls.append(ToolCall(name, args, str(raw.get("id", ""))))
+    return tuple(calls)
+
+
 # ── Retry wrapper (shared by real backends) ────────────────────────
 def with_retries(fn: Callable[[], LLMReply], *, max_retries: int,
                  backoff_s: float, label: str) -> LLMReply:
