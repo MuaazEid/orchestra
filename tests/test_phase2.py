@@ -276,7 +276,6 @@ def test_bad_args_error_includes_correct_signature():
 
 
 
-
 # ── fatal_tools: error stops the task instead of letting the model
 #    hallucinate past it (bug found live: Job Scout + missing Tavily key
 #    fabricated fake job postings instead of reporting the failure) ────
