@@ -43,6 +43,8 @@ Most agent demos work once, on the happy path. This system was hardened through 
 
 Final result: an 8-step web→summarize→save→read chain that initially took **800s and failed** now completes in **139s** — verified by built-in telemetry, not vibes.
 
+Two more failure classes surfaced in a later live audit against qwen2.5:7b and are now fixed and covered by tests: **empty completions** (previously recorded as a successful `(empty reply)` task) and **tool calls printed as JSON text** instead of the native field (previously returned to the user as the final answer).
+
 ## End-to-end example
 
 Input:
@@ -66,23 +68,28 @@ Muaaz, the product of 6 multiplied by 7 is 42. Here's a haiku about the moon:
 Silver glow in night's embrace.
 ```
 
-**4. Telemetry** (`orchestra stats`), from an actual run on the reference laptop (Ollama, qwen2.5:7b):
+**4. Telemetry** (`orchestra stats`), from the current `smoke_test.py` run on the reference laptop (Ollama, qwen2.5:7b, 6 GB RTX 4050):
 ```
 backend=ollama main=qwen2.5:7b fast=qwen2.5:7b concurrency=2
-[PASS] simple math   (16.3s, 1 task)
-[PASS] memory save   (8.0s,  1 task)
-[PASS] memory recall (8.8s,  1 task)
-[PASS] counting      (10.6s, 1 task)
-[PASS] compound       (25.8s, 3 tasks)   ← the example above
-=== 5/5 passed ===
+[PASS] simple math   (2.3s, 1 task)
+[PASS] memory save   (1.6s, 1 task)
+[PASS] memory recall (1.7s, 1 task)
+[PASS] counting      (2.0s, 1 task)
+[PASS] compound      (5.1s, 3 tasks)   ← the example above
+[PASS] files         (3.9s, 2 tasks)
+=== 6/6 passed ===
 
 node          runs   ok%   avg_s   max_s
-specialist      46   100%   6.94   22.59
-run             32   100%  17.93   77.58
-planner         32   100%   7.68   18.65
-executor        32   100%   9.07   67.23
-aggregator       7   100%   5.31    8.03
+specialist       9   100%   0.92    1.84
+executor         6   100%   1.25    2.08
+aggregator       2   100%   0.92    0.93
+run              6   100%   2.77    5.14
+planner          6   100%   1.21    2.13
 ```
+
+Latency depends heavily on GPU state: the same six cases took 17–44s per
+request when another process was holding VRAM, and 1.6–5.1s on an idle GPU.
+Both runs passed 6/6.
 
 ## Engineering highlights
 
@@ -93,7 +100,7 @@ aggregator       7   100%   5.31    8.03
 - **Sandboxed side effects** — file tools are confined to a workspace with cross-platform path-traversal protection (the `..\` Windows case is unit-tested).
 - **Observability first** — every span (planner, specialist, tool call) is timed and logged to SQLite; `orchestra stats` reports real success rates and latencies.
 
-**103 unit tests**, all runnable without Ollama via a scripted `MockLLM` — the whole graph, including the web transport layer, is testable on any machine.
+**111 unit tests**, all runnable without Ollama via a scripted `MockLLM` — the whole graph, including the web transport layer, is testable on any machine.
 
 ## Specialists at a glance
 
@@ -163,7 +170,7 @@ that fails the build if an external URL ever creeps back in.
 | `orchestra/engine/` | planner · dependency executor · aggregator · pipeline |
 | `orchestra/observability/` | SQLite telemetry + stats reports |
 | `orchestra/web/` | FastAPI transport + a dependency-free browser client |
-| `tests/` | 103 tests covering routing, loops, sandboxing, context rules, history, HTTP, language pinning |
+| `tests/` | 111 tests covering routing, loops, sandboxing, context rules, history, HTTP, language pinning, empty-reply recovery, textual tool calls |
 
 ## Honest limits
 
