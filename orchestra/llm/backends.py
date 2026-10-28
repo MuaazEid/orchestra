@@ -14,7 +14,8 @@ from collections import deque
 from typing import Any, Callable
 
 from ..core.config import settings
-from .adapter import LLMClient, LLMReply, ToolCall, with_retries
+from .adapter import (LLMClient, LLMReply, ToolCall, recover_tool_calls,
+                      with_retries)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,13 @@ class OllamaClient(LLMClient):
                 ToolCall(tc.get("name", ""), tc.get("args", {}), tc.get("id", ""))
                 for tc in (getattr(resp, "tool_calls", None) or [])
             )
+            if not calls and tools:
+                allowed = {getattr(t, "__name__", "") for t in tools}
+                calls = recover_tool_calls(resp.content or "", allowed)
+                if calls:
+                    logger.warning(
+                        "ollama:%s | recovered %d tool call(s) printed as text",
+                        self.model, len(calls))
             return LLMReply(text=resp.content or "", tool_calls=calls,
                             model=self.model, latency_s=latency)
 
