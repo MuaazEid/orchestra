@@ -8,7 +8,8 @@ import pytest
 
 from orchestra.core.config import settings
 from orchestra.core.contracts import Task, TaskStatus, SpecialistSpec
-from orchestra.llm.adapter import LLMReply, ToolCall, LLMError, _extract_json
+from orchestra.llm.adapter import (LLMReply, ToolCall, LLMError,
+                                   _extract_json, recover_tool_calls)
 from orchestra.llm.backends import MockLLM, get_llm
 from orchestra.observability.telemetry import Telemetry, stats_report
 
@@ -47,6 +48,33 @@ def test_chat_json_raises_after_exhausted_attempts():
     llm = MockLLM().queue("bad", "still bad")
     with pytest.raises(LLMError):
         llm.chat_json([{"role": "user", "content": "plan"}], max_attempts=2)
+
+
+# ── Textual tool calls (small-model weakness #2) ──────────────────
+@pytest.mark.parametrize("raw", [
+    '{"name": "multiply", "arguments": {"a": 6, "b": 7}}',
+    '{"tool": "multiply", "parameters": {"a": 6, "b": 7}}',
+    '```json\n{"name": "multiply", "args": {"a": 6, "b": 7}}\n```',
+    'I will multiply: {"name": "multiply", "arguments": {"a": 6, "b": 7}} now',
+])
+def test_recover_tool_calls_from_text(raw):
+    calls = recover_tool_calls(raw, {"multiply"})
+    assert len(calls) == 1
+    assert calls[0].name == "multiply" and calls[0].args == {"a": 6, "b": 7}
+
+
+def test_recover_tool_calls_reads_tool_calls_array():
+    raw = '{"tool_calls": [{"name": "multiply", "arguments": {"a": 2, "b": 3}}]}'
+    calls = recover_tool_calls(raw, {"multiply"})
+    assert calls == (ToolCall("multiply", {"a": 2, "b": 3}),)
+
+
+def test_recover_tool_calls_ignores_hallucinated_and_non_json():
+    assert recover_tool_calls('{"name": "teleport", "arguments": {}}',
+                              {"multiply"}) == ()
+    assert recover_tool_calls("The answer is 42.", {"multiply"}) == ()
+    assert recover_tool_calls('{"name": "multiply", "arguments": "six"}',
+                              {"multiply"}) == ()
 
 
 # ── Mock backend & factory ─────────────────────────────────────────
